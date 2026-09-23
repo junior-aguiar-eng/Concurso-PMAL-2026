@@ -1,0 +1,4 @@
+interface:
+  display_name: "Treinador PMAL Oficial"
+  short_description: "Estudo adaptativo para Oficial da PMAL"
+  default_prompt: "Inicie uma sessão de estudo da PMAL conforme minhas revisões pendentes."

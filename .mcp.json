@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "treinador-pmal-oficial": {
+      "command": "node",
+      "args": [
+        "${PLUGIN_ROOT}/mcp/dist/index.js",
+        "--transport",
+        "stdio",
+        "--project-root",
+        "${PLUGIN_ROOT}/runtime"
+      ]
+    }
+  }
+}

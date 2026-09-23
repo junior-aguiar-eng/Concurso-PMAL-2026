@@ -1,0 +1,198 @@
+{
+  "version": 1,
+  "source_document": "EDITAL PMAL 2026.pdf",
+  "disciplines": [
+    {
+      "id": "al",
+      "discipline": "conhecimentos_alagoas",
+      "title": "CONHECIMENTOS DO ESTADO DE ALAGOAS",
+      "source_page": 2,
+      "topics": [
+        {
+          "number": "1",
+          "title": "Formação histórica de Alagoas",
+          "children": [
+            {"number": "1.1", "title": "Colonização portuguesa"},
+            {"number": "1.2", "title": "Economia açucareira"},
+            {"number": "1.3", "title": "Emancipação política da Capitania de Pernambuco em 1817"},
+            {"number": "1.4", "title": "Elevação à Província em 1821"}
+          ]
+        },
+        {
+          "number": "2",
+          "title": "Quilombo dos Palmares",
+          "children": [
+            {"number": "2.1", "title": "Formação no período colonial"},
+            {"number": "2.2", "title": "Resistência à escravidão"},
+            {"number": "2.3", "title": "Liderança de Zumbi dos Palmares"}
+          ]
+        },
+        {
+          "number": "3",
+          "title": "Aspectos geográficos",
+          "children": [
+            {"number": "3.1", "title": "Litoral, Zona da Mata, Agreste e Sertão"},
+            {"number": "3.2", "title": "Rio São Francisco"}
+          ]
+        },
+        {
+          "number": "4",
+          "title": "Organização político-administrativa",
+          "children": [
+            {"number": "4.1", "title": "Maceió como capital estadual"},
+            {"number": "4.2", "title": "Municípios"},
+            {"number": "4.3", "title": "Poderes Executivo, Legislativo e Judiciário"}
+          ]
+        },
+        {
+          "number": "5",
+          "title": "Economia estadual",
+          "children": [
+            {"number": "5.1", "title": "Agroindústria canavieira"},
+            {"number": "5.2", "title": "Turismo"},
+            {"number": "5.3", "title": "Setor de serviços"}
+          ]
+        },
+        {
+          "number": "6",
+          "title": "Cultura e patrimônio",
+          "children": [
+            {"number": "6.1", "title": "Manifestações culturais populares"},
+            {"number": "6.2", "title": "Patrimônio histórico-cultural alagoano"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "leg",
+      "discipline": "legislacao_pmal",
+      "title": "LEGISLAÇÃO PERTINENTE À ATUAÇÃO DO POLICIAL MILITAR DE ALAGOAS",
+      "source_page": 6,
+      "topics": [
+        {"number": "1", "title": "Lei Estadual nº 5.346/1992 (Estatuto dos Policiais Militares do Estado de Alagoas)"},
+        {"number": "2", "title": "Decreto Estadual nº 37.042/1996 (aprova o Regulamento Disciplinar da Polícia Militar de Alagoas e dá outras providências)"},
+        {"number": "3", "title": "Lei nº 7.716/1989 (crimes resultantes de preconceitos de raça ou de cor)"},
+        {"number": "4", "title": "Lei nº 8.072/1990 e Lei nº 8.930/1994 (crimes hediondos)"},
+        {"number": "5", "title": "Lei nº 12.850/2013 (crime organizado)"},
+        {"number": "6", "title": "Lei nº 9.455/1997 (crimes de tortura)"},
+        {"number": "7", "title": "Lei nº 9.605/1998 (crimes contra o meio ambiente)"},
+        {"number": "8", "title": "Lei nº 10.826/2003 (Estatuto do Desarmamento)"},
+        {"number": "9", "title": "Lei nº 11.343/2006 (Lei de Drogas)"},
+        {"number": "10", "title": "Lei nº 11.340/2006 (Lei Maria da Penha)"},
+        {"number": "11", "title": "Lei nº 9.503/1997 (Código de Trânsito Brasileiro)"},
+        {"number": "12", "title": "Lei nº 8.069/1990 (Estatuto da Criança e do Adolescente)"},
+        {"number": "13", "title": "Lei nº 13.869/2019 (abuso de autoridade)"},
+        {"number": "14", "title": "Lei nº 7.960/1989 (prisão temporária) e suas alterações"},
+        {"number": "15", "title": "Lei nº 9.099/1995 (juizados especiais)"},
+        {"number": "16", "title": "Lei nº 10.259/2001 (leis dos juizados especiais cíveis e criminais no âmbito da justiça federal) e suas respectivas alterações"},
+        {"number": "17", "title": "Lei Federal nº 14.751/2023 (Lei orgânica da Policia Militar)"}
+      ]
+    },
+    {
+      "id": "dpm",
+      "discipline": "direito_penal_militar",
+      "title": "DIREITO PENAL MILITAR",
+      "source_page": 6,
+      "topics": [
+        {"number": "1", "title": "Aplicação da lei penal militar"},
+        {"number": "2", "title": "Crime"},
+        {"number": "3", "title": "Imputabilidade penal"},
+        {"number": "4", "title": "Concurso de agentes"},
+        {"number": "5", "title": "Penas"},
+        {"number": "6", "title": "Aplicação da pena"},
+        {"number": "7", "title": "Suspensão condicional da pena"},
+        {"number": "8", "title": "Livramento condicional"},
+        {"number": "9", "title": "Penas acessórias"},
+        {"number": "10", "title": "Efeitos da condenação"},
+        {"number": "11", "title": "Medidas de segurança"},
+        {"number": "12", "title": "Ação penal"},
+        {"number": "13", "title": "Extinção da punibilidade"},
+        {"number": "14", "title": "Crimes militares em tempo de paz"},
+        {"number": "15", "title": "Crimes própria e impropriamente militares; critérios de classificação"},
+        {"number": "16", "title": "Princípios constitucionais penais com reflexos na lei penal militar"}
+      ]
+    },
+    {
+      "id": "dppm",
+      "discipline": "direito_processual_penal_militar",
+      "title": "DIREITO PROCESSUAL PENAL MILITAR",
+      "source_page": 7,
+      "topics": [
+        {"number": "1", "title": "Processo penal militar e sua aplicação"},
+        {"number": "2", "title": "Polícia judiciária militar"},
+        {"number": "3", "title": "Inquérito policial militar"},
+        {"number": "4", "title": "Ação penal militar e seu exercício"},
+        {"number": "5", "title": "Processo"},
+        {"number": "6", "title": "Juiz, auxiliares e partes do processo"},
+        {"number": "7", "title": "Denúncia"},
+        {"number": "8", "title": "Questões prejudiciais"},
+        {"number": "9", "title": "Exceções"},
+        {"number": "10", "title": "Incidente de sanidade mental do acusado"},
+        {"number": "11", "title": "Incidente de falsidade de documento"},
+        {"number": "12", "title": "Medidas preventivas e assecuratórias"},
+        {"number": "13", "title": "Providências que recaem sobre coisas"},
+        {
+          "number": "14",
+          "title": "Providências que recaem sobre pessoas",
+          "children": [
+            {"number": "14.1", "title": "Prisão em flagrante"},
+            {"number": "14.2", "title": "Prisão preventiva"},
+            {"number": "14.3", "title": "Liberdade provisória"}
+          ]
+        },
+        {"number": "15", "title": "Citação, intimação e notificação"},
+        {
+          "number": "16",
+          "title": "Atos probatórios",
+          "children": [
+            {"number": "16.1", "title": "Interrogatório"},
+            {"number": "16.2", "title": "Confissão"},
+            {"number": "16.3", "title": "Perícias e exames"},
+            {"number": "16.4", "title": "Testemunhas"},
+            {"number": "16.5", "title": "Acareação"},
+            {"number": "16.6", "title": "Reconhecimento de pessoa e coisa"},
+            {"number": "16.7", "title": "Documentos"},
+            {"number": "16.8", "title": "Indícios"}
+          ]
+        },
+        {
+          "number": "17",
+          "title": "Processos em espécie",
+          "children": [
+            {"number": "17.1", "title": "Processo ordinário"},
+            {"number": "17.2", "title": "Processos especiais"},
+            {"number": "17.3", "title": "Deserção de oficial e de praça"},
+            {"number": "17.4", "title": "Insubmissão"}
+          ]
+        },
+        {"number": "18", "title": "Nulidades"},
+        {
+          "number": "19",
+          "title": "Recursos",
+          "children": [
+            {"number": "19.1", "title": "Regras gerais"},
+            {"number": "19.2", "title": "Recurso em sentido estrito"},
+            {"number": "19.3", "title": "Correição parcial"},
+            {"number": "19.4", "title": "Apelação"},
+            {"number": "19.5", "title": "Embargos"},
+            {"number": "19.6", "title": "Revisão"},
+            {"number": "19.7", "title": "Recurso extraordinário"},
+            {"number": "19.8", "title": "Reclamação"}
+          ]
+        },
+        {
+          "number": "20",
+          "title": "Execução",
+          "children": [
+            {"number": "20.1", "title": "Incidentes"},
+            {"number": "20.2", "title": "Suspensão condicional da pena"},
+            {"number": "20.3", "title": "Livramento condicional"},
+            {"number": "20.4", "title": "Indulto, comutação da pena, anistia e reabilitação"},
+            {"number": "20.5", "title": "Execução das medidas de segurança"}
+          ]
+        },
+        {"number": "21", "title": "Princípios constitucionais processuais com reflexos na lei processual penal militar"}
+      ]
+    }
+  ]
+}

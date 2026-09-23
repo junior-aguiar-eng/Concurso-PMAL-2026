@@ -1,0 +1,34 @@
+# Dependency directories
+node_modules/
+.venv/
+env/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs and databases
+*.log
+*.sqlite
+*.sqlite3
+*.db
+
+# Environment and IDE
+.env
+.env.local
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
