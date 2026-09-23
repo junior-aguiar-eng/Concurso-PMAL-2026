@@ -50,15 +50,15 @@ export const DashboardSchema = z.strictObject({
         correct: z.number().int().nonnegative(),
         topics_total: z.number().int().nonnegative(),
         topics_covered: z.number().int().nonnegative(),
-    })).length(4),
+    })).optional().default([]),
     error_patterns: z.array(z.strictObject({
         pattern: z.string().min(1),
         count: z.number().int().positive(),
-    })),
+    })).optional().default([]),
     syllabus: z.strictObject({
         topics_total: z.number().int().nonnegative(),
         topics_covered: z.number().int().nonnegative(),
-    }),
+    }).optional().default({ topics_total: 0, topics_covered: 0 }),
     study_bank: z.number().int().nonnegative(),
 });
 export const ReviewQueueSchema = z.array(z.strictObject({

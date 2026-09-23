@@ -43,6 +43,22 @@ export const DashboardSchema = z.strictObject({
     review_total: z.number().int().nonnegative(),
     reviews_due: z.number().int().nonnegative(),
     mastery_by_discipline: z.record(z.string(), z.number().min(0).max(1)),
+    discipline_metrics: z.array(z.strictObject({
+        discipline: DisciplineSchema,
+        mastery: z.number().min(0).max(1),
+        attempts: z.number().int().nonnegative(),
+        correct: z.number().int().nonnegative(),
+        topics_total: z.number().int().nonnegative(),
+        topics_covered: z.number().int().nonnegative(),
+    })).optional().default([]),
+    error_patterns: z.array(z.strictObject({
+        pattern: z.string().min(1),
+        count: z.number().int().positive(),
+    })).optional().default([]),
+    syllabus: z.strictObject({
+        topics_total: z.number().int().nonnegative(),
+        topics_covered: z.number().int().nonnegative(),
+    }).optional().default({ topics_total: 0, topics_covered: 0 }),
     study_bank: z.number().int().nonnegative(),
 });
 export const ReviewQueueSchema = z.array(z.strictObject({

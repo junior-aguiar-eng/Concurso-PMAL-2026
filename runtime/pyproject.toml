@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "treinador-pmal-oficial"
 version = "0.1.0"
 description = "Ferramenta local-first de estudo para o concurso de Oficial da PMAL"
-requires-python = ">=3.14,<3.15"
+requires-python = ">=3.12"
 dependencies = []
 
 [dependency-groups]
@@ -19,5 +19,5 @@ dev = [
 packages = ["src/pmal_study"]
 
 [tool.pytest.ini_options]
-addopts = "-ra --basetemp=tmp/pytest"
+addopts = "-ra -p no:tmpdir"
 testpaths = ["tests"]

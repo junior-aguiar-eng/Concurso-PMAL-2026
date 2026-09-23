@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-python:
+    name: Testes Python (Runtime)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Instalar uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Configurar Python
+        run: uv python install 3.12
+
+      - name: Executar testes com pytest
+        run: uv run --project runtime pytest runtime/tests
+
+  test-node:
+    name: Testes Node (MCP Server)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: mcp/package-lock.json
+
+      - name: Instalar uv (necessário para testes do MCP com core Python)
+        uses: astral-sh/setup-uv@v5
+
+      - name: Instalar dependências MCP
+        working-directory: mcp
+        run: npm ci
+
+      - name: Executar testes com vitest
+        working-directory: mcp
+        run: npm test

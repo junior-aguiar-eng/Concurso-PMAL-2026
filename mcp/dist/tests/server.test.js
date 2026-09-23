@@ -1,5 +1,6 @@
 import { once } from "node:events";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { afterEach, describe, expect, it } from "vitest";
@@ -12,7 +13,9 @@ describe("servidor MCP local", () => {
         resources.length = 0;
     });
     it("expõe /mcp, lista ferramentas e consulta o núcleo Python", async () => {
-        const projectRoot = path.resolve("../../..");
+        const projectRoot = process.env.PMAL_PROJECT_ROOT
+            ? path.resolve(process.env.PMAL_PROJECT_ROOT)
+            : fileURLToPath(new URL("../../../runtime", import.meta.url));
         const httpServer = startHttpServer(projectRoot, 0);
         resources.push(httpServer);
         await once(httpServer, "listening");
