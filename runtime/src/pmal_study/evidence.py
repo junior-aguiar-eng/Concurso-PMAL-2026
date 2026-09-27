@@ -69,7 +69,7 @@ def search_evidence(
         WHERE source_chunks_fts MATCH ?
           AND version.is_current = 1
           AND chunk.status IN ('usable', 'ocr')
-          AND (chunk.discipline = ? OR chunk.discipline IS NULL)
+          AND chunk.discipline = ?
         ORDER BY bm25(source_chunks_fts)
         LIMIT ?
         """,

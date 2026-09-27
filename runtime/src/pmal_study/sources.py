@@ -15,6 +15,13 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+from pmal_study.topic_mapping import (
+    compiled_code_discipline,
+    first_article,
+    law_topic,
+    normalize,
+    topic_for_article,
+)
 from pmal_study.db import transaction
 
 _EXCLUDED_DIRECTORIES = {
@@ -359,26 +366,32 @@ def _chunk_page(text: str, page_number: int, limit: int = 1800) -> list[tuple[st
 
 
 def _infer_discipline(relative_path: str) -> str | None:
-    normalized = unicodedata.normalize("NFKD", relative_path.casefold())
-    normalized = "".join(character for character in normalized if not unicodedata.combining(character))
+    normalized = normalize(relative_path)
+    compiled = compiled_code_discipline(relative_path)
+    if compiled:
+        return compiled
     if "cppm" in normalized or "processo penal militar" in normalized:
         return "direito_processual_penal_militar"
     if re.search(r"(?:^|/)cpm(?:/|\s|-)", normalized) or "penal militar" in normalized:
         return "direito_penal_militar"
-    if "legislacao pmal" in normalized:
+    if "legislacao" in normalized or law_topic(relative_path):
         return "legislacao_pmal"
     if "conhecimentos al" in normalized or "alagoas" in normalized:
         return "conhecimentos_alagoas"
     return None
 
 
+_OFFICIAL_FOLDERS = ("legislacao oficial/", "leis oficiais/", "oficial/")
+
+
 def _infer_authority(relative_path: str) -> str:
-    normalized = unicodedata.normalize("NFKD", relative_path.casefold())
-    normalized = "".join(character for character in normalized if not unicodedata.combining(character))
+    """Só é cópia oficial o texto normativo íntegro; apostilas comentadas são didáticas."""
+
+    normalized = normalize(relative_path)
     filename = Path(normalized).name
-    if filename.startswith(("cpm - del1001", "cppm - del1002")):
+    if compiled_code_discipline(relative_path):
         return "local_official_copy"
-    if normalized.startswith("legislacao pmal/") and filename.startswith(("estatuto", "rdpmal")):
+    if any(folder in f"/{normalized}" for folder in (f"/{name}" for name in _OFFICIAL_FOLDERS)):
         return "local_official_copy"
     if "edital" in filename:
         return "exam_board"
@@ -400,48 +413,86 @@ def _topic_terms(value: str) -> set[str]:
     }
 
 
+def _structural_topics(
+    rows: list[tuple[Any, ...]],
+) -> dict[str, tuple[str | None, str | None]]:
+    """Tópico por faixa de artigos (códigos compilados) ou por número da lei.
+
+    Trechos sem marcador de artigo herdam o tópico do trecho anterior do mesmo documento.
+    """
+
+    assigned: dict[str, tuple[str | None, str | None]] = {}
+    current: dict[str, str | None] = {}
+    for chunk_id, _discipline, _locator, text, relative_path, document_id in rows:
+        compiled = compiled_code_discipline(str(relative_path))
+        if compiled:
+            article = first_article(str(text))
+            if article is not None:
+                found, topic = topic_for_article(compiled, article)
+                if found:
+                    current[str(document_id)] = topic
+            if str(document_id) in current:
+                assigned[str(chunk_id)] = (compiled, current[str(document_id)])
+            continue
+        topic = law_topic(str(relative_path))
+        if topic and _infer_authority(str(relative_path)) == "local_official_copy":
+            assigned[str(chunk_id)] = ("legislacao_pmal", topic)
+    return assigned
+
+
 def enrich_chunk_metadata(connection: sqlite3.Connection) -> int:
-    """Classifica autoridade e tópico com metadados e sobreposição lexical auditável."""
+    """Classifica disciplina, autoridade e tópico de forma auditável.
+
+    Códigos compilados e leis oficiais usam a estrutura normativa (artigos, número da lei);
+    o restante usa sobreposição lexical com os títulos do edital.
+    """
 
     topics: dict[str, list[tuple[str, str, set[str]]]] = {}
     for topic_id, discipline, title in connection.execute(
         "SELECT id, discipline, title FROM syllabus_topics"
     ):
         terms = _topic_terms(title)
-        if terms:
+        # Tópicos-raiz (ex.: "dppm") funcionariam como depósito genérico da disciplina.
+        if terms and "." in str(topic_id):
             topics.setdefault(discipline, []).append((topic_id, title, terms))
-    updates: list[tuple[str, str | None, str]] = []
     rows = connection.execute(
         """
         SELECT chunk.id, chunk.discipline, chunk.locator, chunk.text,
-               document.relative_path
+               document.relative_path, document.id
         FROM source_chunks AS chunk
         JOIN source_document_versions AS version ON version.id = chunk.version_id
         JOIN source_documents AS document ON document.id = chunk.document_id
         WHERE version.is_current = 1 AND chunk.status IN ('usable', 'ocr')
+        ORDER BY document.id, chunk.page_start, chunk.rowid
         """
     ).fetchall()
-    for chunk_id, discipline, locator, text, relative_path in rows:
+    structural = _structural_topics(rows)
+    updates: list[tuple[str | None, str, str | None, str]] = []
+    for chunk_id, _stored, locator, text, relative_path, _document_id in rows:
+        authority = _infer_authority(str(relative_path))
+        if str(chunk_id) in structural:
+            discipline, selected_topic = structural[str(chunk_id)]
+            updates.append((discipline, authority, selected_topic, str(chunk_id)))
+            continue
+        discipline = _infer_discipline(str(relative_path))
         selected_topic: str | None = None
         if discipline in topics:
             haystack = _topic_terms(f"{locator} {str(text)[:3000]}")
             candidates: list[tuple[float, str]] = []
-            normalized_text = unicodedata.normalize("NFKD", f"{locator} {str(text)[:3000]}".casefold())
-            normalized_text = "".join(character for character in normalized_text if not unicodedata.combining(character))
+            normalized_text = normalize(f"{locator} {str(text)[:3000]}")
             for topic_id, title, terms in topics[discipline]:
                 overlap = len(terms & haystack)
                 if overlap == 0:
                     continue
-                phrase = unicodedata.normalize("NFKD", title.casefold())
-                phrase = "".join(character for character in phrase if not unicodedata.combining(character))
+                phrase = normalize(title)
                 score = overlap / len(terms) + (2 if phrase in normalized_text else 0)
                 candidates.append((score, topic_id))
             if candidates:
                 selected_topic = max(candidates)[1]
-        updates.append((_infer_authority(str(relative_path)), selected_topic, str(chunk_id)))
+        updates.append((discipline, authority, selected_topic, str(chunk_id)))
     with transaction(connection):
         connection.executemany(
-            "UPDATE source_chunks SET authority = ?, topic_id = coalesce(topic_id, ?) WHERE id = ?",
+            "UPDATE source_chunks SET discipline = ?, authority = ?, topic_id = ? WHERE id = ?",
             updates,
         )
     return len(updates)
