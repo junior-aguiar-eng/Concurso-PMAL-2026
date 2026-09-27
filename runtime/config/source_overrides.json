@@ -1,6 +1,11 @@
 {
   "596_PMAL_001_MATRIZ.pdf": {
     "status": "ocr_required",
-    "reason": "Camada textual com codificação não confiável; exige OCR ou transcrição revisada."
+    "reason": "Fontes sem mapeamento Unicode (camada textual inutilizável); caderno Cebraspe em duas colunas exige OCR por coluna.",
+    "ocr_layout": {
+      "columns": 2,
+      "header_ratio": 0.031,
+      "single_column_pages": [1, 8, 9, 10]
+    }
   }
 }

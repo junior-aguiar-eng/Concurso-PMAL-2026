@@ -92,3 +92,29 @@ def test_enriquecimento_estrutural_e_busca_restrita_a_disciplina(db_connection):
     identifiers = {item.id for item in evidence}
     assert compiled[0] in identifiers
     assert outside[0] not in identifiers
+
+
+def test_ocr_em_duas_colunas_recorta_cada_coluna(monkeypatch):
+    from pathlib import Path
+
+    from pmal_study import sources
+
+    monkeypatch.setattr(sources, "_page_size_points", lambda path, page: (595.22, 842.0))
+    layout = {"columns": 2, "header_ratio": 0.03, "single_column_pages": [1]}
+    regions = sources._ocr_regions(Path("prova.pdf"), 4, layout, 300)
+    assert [psm for _crop, psm in regions] == ["4", "4"]
+    left, right = (crop for crop, _psm in regions)
+    assert left[:2] == ["-x", "0"] and right[1] == str(2480 // 2)
+    assert sources._ocr_regions(Path("prova.pdf"), 1, layout, 300) == [([], "3")]
+    assert sources._ocr_regions(Path("prova.pdf"), 4, None, 300) == [([], "3")]
+
+
+def test_excecoes_do_runtime_valem_para_qualquer_pasta_de_pdfs():
+    import tempfile
+    from pathlib import Path
+
+    from pmal_study.sources import _load_overrides
+
+    with tempfile.TemporaryDirectory() as folder:
+        overrides = _load_overrides(Path(folder))
+    assert overrides["596_PMAL_001_MATRIZ.pdf"]["ocr_layout"]["columns"] == 2
