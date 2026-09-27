@@ -8,13 +8,22 @@ function errorResult(code, message) {
         structuredContent: { ok: false, error: { code, message } },
     };
 }
-function dataResult(data, output, summarize) {
+function dataResult(data, output, summarize, options = {}) {
     const parsed = output.parse(data);
     const structuredContent = (Array.isArray(parsed) ? { items: parsed } : parsed);
-    return {
-        content: [{ type: "text", text: summarize(parsed) }],
-        structuredContent,
-    };
+    const content = [{ type: "text", text: summarize(parsed) }];
+    // Clientes que repassam ao modelo só o content (e não o structuredContent) precisam
+    // do JSON em texto para ler brief, enunciado e correção.
+    if (options.includeJson)
+        content.push({ type: "text", text: JSON.stringify(structuredContent) });
+    return { content, structuredContent };
+}
+/** Ferramentas só do painel (visibility app) ou que renderizam UI mantêm o content enxuto. */
+function isModelFacing(definition) {
+    const ui = definition._meta?.ui;
+    if (ui?.resourceUri)
+        return false;
+    return !(ui?.visibility && !ui.visibility.includes("model"));
 }
 export function createToolCatalog(core, options = {}) {
     const tool = (name, definition, command, output, summarize) => ({
@@ -29,7 +38,7 @@ export function createToolCatalog(core, options = {}) {
             const response = await core.call(command, input);
             if (!response.ok)
                 return errorResult(response.error.code, response.error.message);
-            return dataResult(response.data, output, summarize);
+            return dataResult(response.data, output, summarize, { includeJson: isModelFacing(definition) });
         },
     });
     const catalog = [
@@ -232,11 +241,11 @@ export function createToolCatalog(core, options = {}) {
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         }, "review-queue", ReviewQueueSchema, (data) => `Fila de revisão consultada: ${data.length} questões.`),
         tool("pmal_export_canvas_summary", {
-            title: "Exportar resumo para Canvas",
-            description: "Use this when o estudante quiser um resumo Markdown editável no Canvas.",
+            title: "Exportar resumo em Markdown",
+            description: "Use this when o estudante quiser um resumo Markdown do desempenho (Canvas, artefato ou documento).",
             inputSchema: {},
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
-        }, "export-canvas", CanvasExportSchema, () => "Resumo Markdown gerado para o Canvas."),
+        }, "export-canvas", CanvasExportSchema, () => "Resumo Markdown gerado."),
         tool("pmal_check_official_source", {
             title: "Verificar fonte jurídica oficial",
             description: "Use this when uma sessão exigir consulta atual ao Planalto, STF ou STJ, com URL e citação explícitas.",

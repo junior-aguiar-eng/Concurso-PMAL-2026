@@ -8,7 +8,39 @@ export const MAX_STDOUT_BYTES = 2 * 1024 * 1024;
 export interface CoreCaller { call(command: string, input: Record<string, unknown>): Promise<CliEnvelope>; close?(): Promise<void>; }
 export type WorkerSpawner = (executable: string, args: string[], options: Parameters<typeof spawn>[2]) => ChildProcessWithoutNullStreams;
 
-export function initializeBundledDatabase(projectRoot: string, dataDirectory = process.env.PMAL_DATA_DIR ?? path.join(os.homedir(), ".codex", "state", "treinador-pmal-oficial")): string | undefined {
+export const DEFAULT_TIMEOUT_MS = 30_000;
+export type Runner = { kind: "python" | "uv"; executable: string };
+
+function configured(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  // Campo opcional não preenchido no Claude Desktop pode chegar como "${user_config.x}".
+  return trimmed && !trimmed.startsWith("${") ? trimmed : undefined;
+}
+
+/**
+ * PMAL_PYTHON (interpretador >= 3.11) dispensa o uv: o núcleo não tem dependências externas.
+ * Sem ele, usa o uv; PMAL_UV aceita caminho absoluto, pois o Claude Desktop não herda o PATH do terminal.
+ */
+export function resolveRunner(env: NodeJS.ProcessEnv = process.env): Runner {
+  const python = configured(env.PMAL_PYTHON);
+  if (python) return { kind: "python", executable: python };
+  return { kind: "uv", executable: configured(env.PMAL_UV) ?? "uv" };
+}
+
+export function resolveTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const value = Number(env.PMAL_TIMEOUT_MS);
+  return Number.isInteger(value) && value > 0 ? value : DEFAULT_TIMEOUT_MS;
+}
+
+export function workerCommand(runner: Runner, projectRoot: string, databasePath?: string): { args: string[]; env: Record<string, string> } {
+  const workerArgs = ["-m", "pmal_study.worker", "--project-root", projectRoot];
+  if (databasePath) workerArgs.push("--database", databasePath);
+  return runner.kind === "python"
+    ? { args: workerArgs, env: { PYTHONPATH: path.join(projectRoot, "src") } }
+    : { args: ["run", "--quiet", "--project", projectRoot, "python", ...workerArgs], env: {} };
+}
+
+export function initializeBundledDatabase(projectRoot: string, dataDirectory = configured(process.env.PMAL_DATA_DIR) ?? path.join(os.homedir(), ".codex", "state", "treinador-pmal-oficial")): string | undefined {
   const seed = path.join(projectRoot, "corpus", "pmal-study-seed.db");
   if (!existsSync(seed)) return undefined;
   mkdirSync(dataDirectory, { recursive: true });
@@ -40,8 +72,11 @@ export class CoreClient implements CoreCaller {
   private sequence = 0;
   private queue: Promise<unknown> = Promise.resolve();
   private closed = false;
+  private stderrTail = "";
+  private readonly runner: Runner;
 
-  constructor(projectRoot: string, private readonly spawnWorker: WorkerSpawner = (executable, args, options) => spawn(executable, args, options) as ChildProcessWithoutNullStreams, databasePath?: string, dataDirectory?: string, private readonly defaultTimeoutMs = 30_000) {
+  constructor(projectRoot: string, private readonly spawnWorker: WorkerSpawner = (executable, args, options) => spawn(executable, args, options) as ChildProcessWithoutNullStreams, databasePath?: string, dataDirectory?: string, private readonly defaultTimeoutMs = resolveTimeoutMs(), runner: Runner = resolveRunner()) {
+    this.runner = runner;
     if (!path.isAbsolute(projectRoot)) throw new Error("projectRoot deve ser absoluto.");
     this.projectRoot = path.resolve(projectRoot);
     this.databasePath = databasePath ?? initializeBundledDatabase(this.projectRoot, dataDirectory);
@@ -50,14 +85,25 @@ export class CoreClient implements CoreCaller {
   private start(): Promise<void> {
     if (this.ready) return this.ready;
     if (this.closed) return Promise.reject(new Error("O worker já foi encerrado."));
-    const args = ["run", "--quiet", "--project", this.projectRoot, "python", "-m", "pmal_study.worker", "--project-root", this.projectRoot];
-    if (this.databasePath) args.push("--database", this.databasePath);
+    const { args, env } = workerCommand(this.runner, this.projectRoot, this.databasePath);
+    const executable = this.runner.executable;
     this.ready = new Promise<void>((resolve, reject) => { this.readyResolve = resolve; this.readyReject = reject; });
-    const child = this.spawnWorker("uv", args, { cwd: this.projectRoot, shell: false, windowsHide: true, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, PYTHONUTF8: "1" } });
+    this.stderrTail = "";
+    const child = this.spawnWorker(executable, args, { cwd: this.projectRoot, shell: false, windowsHide: true, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, ...env, PYTHONUTF8: "1" } });
     this.child = child;
     child.stdout.on("data", (chunk: Buffer) => this.consume(chunk.toString("utf8")));
-    child.on("error", (error) => { if (this.child === child) this.fail(error); });
-    child.on("close", () => { if (this.child === child) this.fail(new Error("O worker Python foi encerrado.")); });
+    child.stderr?.on("data", (chunk: Buffer) => { this.stderrTail = (this.stderrTail + chunk.toString("utf8")).slice(-2_000); });
+    child.on("error", (error: NodeJS.ErrnoException) => {
+      if (this.child !== child) return;
+      this.fail(error.code === "ENOENT"
+        ? new Error(`Executável "${executable}" não encontrado. Configure PMAL_PYTHON (Python >= 3.11) ou PMAL_UV com caminho absoluto.`)
+        : error);
+    });
+    child.on("close", () => {
+      if (this.child !== child) return;
+      const detail = this.stderrTail.trim().split(/\r?\n/).slice(-3).join(" | ");
+      this.fail(new Error(detail ? `O worker Python foi encerrado. stderr: ${detail}` : "O worker Python foi encerrado."));
+    });
     return this.ready;
   }
 

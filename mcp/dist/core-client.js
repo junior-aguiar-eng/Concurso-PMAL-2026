@@ -4,7 +4,35 @@ import os from "node:os";
 import path from "node:path";
 import { CliEnvelopeSchema } from "./schemas.js";
 export const MAX_STDOUT_BYTES = 2 * 1024 * 1024;
-export function initializeBundledDatabase(projectRoot, dataDirectory = process.env.PMAL_DATA_DIR ?? path.join(os.homedir(), ".codex", "state", "treinador-pmal-oficial")) {
+export const DEFAULT_TIMEOUT_MS = 30_000;
+function configured(value) {
+    const trimmed = value?.trim();
+    // Campo opcional não preenchido no Claude Desktop pode chegar como "${user_config.x}".
+    return trimmed && !trimmed.startsWith("${") ? trimmed : undefined;
+}
+/**
+ * PMAL_PYTHON (interpretador >= 3.11) dispensa o uv: o núcleo não tem dependências externas.
+ * Sem ele, usa o uv; PMAL_UV aceita caminho absoluto, pois o Claude Desktop não herda o PATH do terminal.
+ */
+export function resolveRunner(env = process.env) {
+    const python = configured(env.PMAL_PYTHON);
+    if (python)
+        return { kind: "python", executable: python };
+    return { kind: "uv", executable: configured(env.PMAL_UV) ?? "uv" };
+}
+export function resolveTimeoutMs(env = process.env) {
+    const value = Number(env.PMAL_TIMEOUT_MS);
+    return Number.isInteger(value) && value > 0 ? value : DEFAULT_TIMEOUT_MS;
+}
+export function workerCommand(runner, projectRoot, databasePath) {
+    const workerArgs = ["-m", "pmal_study.worker", "--project-root", projectRoot];
+    if (databasePath)
+        workerArgs.push("--database", databasePath);
+    return runner.kind === "python"
+        ? { args: workerArgs, env: { PYTHONPATH: path.join(projectRoot, "src") } }
+        : { args: ["run", "--quiet", "--project", projectRoot, "python", ...workerArgs], env: {} };
+}
+export function initializeBundledDatabase(projectRoot, dataDirectory = configured(process.env.PMAL_DATA_DIR) ?? path.join(os.homedir(), ".codex", "state", "treinador-pmal-oficial")) {
     const seed = path.join(projectRoot, "corpus", "pmal-study-seed.db");
     if (!existsSync(seed))
         return undefined;
@@ -43,9 +71,12 @@ export class CoreClient {
     sequence = 0;
     queue = Promise.resolve();
     closed = false;
-    constructor(projectRoot, spawnWorker = (executable, args, options) => spawn(executable, args, options), databasePath, dataDirectory, defaultTimeoutMs = 30_000) {
+    stderrTail = "";
+    runner;
+    constructor(projectRoot, spawnWorker = (executable, args, options) => spawn(executable, args, options), databasePath, dataDirectory, defaultTimeoutMs = resolveTimeoutMs(), runner = resolveRunner()) {
         this.spawnWorker = spawnWorker;
         this.defaultTimeoutMs = defaultTimeoutMs;
+        this.runner = runner;
         if (!path.isAbsolute(projectRoot))
             throw new Error("projectRoot deve ser absoluto.");
         this.projectRoot = path.resolve(projectRoot);
@@ -56,17 +87,27 @@ export class CoreClient {
             return this.ready;
         if (this.closed)
             return Promise.reject(new Error("O worker já foi encerrado."));
-        const args = ["run", "--quiet", "--project", this.projectRoot, "python", "-m", "pmal_study.worker", "--project-root", this.projectRoot];
-        if (this.databasePath)
-            args.push("--database", this.databasePath);
+        const { args, env } = workerCommand(this.runner, this.projectRoot, this.databasePath);
+        const executable = this.runner.executable;
         this.ready = new Promise((resolve, reject) => { this.readyResolve = resolve; this.readyReject = reject; });
-        const child = this.spawnWorker("uv", args, { cwd: this.projectRoot, shell: false, windowsHide: true, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, PYTHONUTF8: "1" } });
+        this.stderrTail = "";
+        const child = this.spawnWorker(executable, args, { cwd: this.projectRoot, shell: false, windowsHide: true, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, ...env, PYTHONUTF8: "1" } });
         this.child = child;
         child.stdout.on("data", (chunk) => this.consume(chunk.toString("utf8")));
-        child.on("error", (error) => { if (this.child === child)
-            this.fail(error); });
-        child.on("close", () => { if (this.child === child)
-            this.fail(new Error("O worker Python foi encerrado.")); });
+        child.stderr?.on("data", (chunk) => { this.stderrTail = (this.stderrTail + chunk.toString("utf8")).slice(-2_000); });
+        child.on("error", (error) => {
+            if (this.child !== child)
+                return;
+            this.fail(error.code === "ENOENT"
+                ? new Error(`Executável "${executable}" não encontrado. Configure PMAL_PYTHON (Python >= 3.11) ou PMAL_UV com caminho absoluto.`)
+                : error);
+        });
+        child.on("close", () => {
+            if (this.child !== child)
+                return;
+            const detail = this.stderrTail.trim().split(/\r?\n/).slice(-3).join(" | ");
+            this.fail(new Error(detail ? `O worker Python foi encerrado. stderr: ${detail}` : "O worker Python foi encerrado."));
+        });
         return this.ready;
     }
     consume(chunk) {

@@ -203,7 +203,11 @@ def _dispatch(
                 raise DomainError("invalid_draft", "O campo draft deve ser um objeto.")
             return service.commit_generated_question(str(payload["job_id"]), draft)
         if command == "refresh-corpus":
-            source_root = Path(os.environ.get("PMAL_SOURCE_ROOT", project_root)).resolve()
+            configured_root = os.environ.get("PMAL_SOURCE_ROOT", "").strip()
+            # Campo opcional não preenchido no Claude Desktop pode chegar como "${user_config...}".
+            if not configured_root or "${" in configured_root:
+                configured_root = str(project_root)
+            source_root = Path(configured_root).resolve()
             tessdata = source_root / ".pmal-study" / "ocr" / "tessdata"
             return refresh_corpus(
                 source_root, connection,
