@@ -1,0 +1,103 @@
+{
+  "manifest_version": "0.2",
+  "name": "treinador-pmal-oficial",
+  "display_name": "Treinador PMAL Oficial",
+  "version": "0.2.0",
+  "description": "Sessões adaptativas de questões C/E e revisão espaçada para Oficial da PMAL.",
+  "long_description": "Treinador local de questões Cebraspe com revisão espaçada, cobertura do edital e painel de desempenho, restrito a Direito Penal Militar, Direito Processual Penal Militar, Legislação PMAL e Conhecimentos de Alagoas. O histórico fica em SQLite na pasta de dados escolhida.",
+  "author": {
+    "name": "Boni Jr"
+  },
+  "server": {
+    "type": "node",
+    "entry_point": "mcp/dist/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/mcp/dist/index.js",
+        "--transport",
+        "stdio",
+        "--project-root",
+        "${__dirname}/runtime"
+      ],
+      "env": {
+        "PMAL_PYTHON": "${user_config.python_path}",
+        "PMAL_UV": "${user_config.uv_path}",
+        "PMAL_DATABASE": "${user_config.data_dir}/pmal-study.db"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "pmal_start_session",
+      "description": "Inicia sessão de diagnóstico, treino, revisão ou simulado."
+    },
+    {
+      "name": "pmal_next_question",
+      "description": "Obtém a próxima questão sem revelar o gabarito."
+    },
+    {
+      "name": "pmal_submit_answer",
+      "description": "Corrige resposta C/E com confiança de 0 a 3 e agenda revisão."
+    },
+    {
+      "name": "pmal_get_dashboard",
+      "description": "Consulta desempenho, domínio e revisões vencidas."
+    },
+    {
+      "name": "pmal_get_review_queue",
+      "description": "Lista questões pendentes de revisão."
+    },
+    {
+      "name": "pmal_export_canvas_summary",
+      "description": "Gera resumo Markdown do desempenho."
+    },
+    {
+      "name": "pmal_check_official_source",
+      "description": "Verifica fonte oficial (Planalto, STF, STJ)."
+    },
+    {
+      "name": "pmal_render_dashboard",
+      "description": "Exibe o painel interativo."
+    }
+  ],
+  "keywords": [
+    "pmal",
+    "concurso",
+    "cebraspe",
+    "revisão espaçada",
+    "direito penal militar"
+  ],
+  "license": "UNLICENSED",
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=22.0.0"
+    }
+  },
+  "user_config": {
+    "python_path": {
+      "type": "file",
+      "title": "Python 3.12+ (recomendado)",
+      "description": "Caminho do executável Python (ex.: /usr/local/bin/python3 ou C:\\\\Python312\\\\python.exe). Se vazio, o uv será usado.",
+      "required": false
+    },
+    "uv_path": {
+      "type": "file",
+      "title": "uv (alternativa)",
+      "description": "Caminho absoluto do uv, usado só se o Python não for informado. Se vazio, procura 'uv' no PATH.",
+      "required": false
+    },
+    "data_dir": {
+      "type": "directory",
+      "title": "Pasta de dados",
+      "description": "Onde fica o banco SQLite com seu histórico. Fora da pasta da extensão para sobreviver a atualizações.",
+      "required": true,
+      "default": "${HOME}/.pmal-study"
+    }
+  }
+}

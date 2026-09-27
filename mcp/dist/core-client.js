@@ -2,6 +2,28 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { CliEnvelopeSchema } from "./schemas.js";
 export const MAX_STDOUT_BYTES = 2 * 1024 * 1024;
+export const DEFAULT_TIMEOUT_MS = 30_000;
+/**
+ * Resolve como a CLI Python será executada.
+ * PMAL_PYTHON (interpretador >= 3.12) dispensa o uv: o núcleo não tem dependências externas.
+ * Sem ele, usa o uv (PMAL_UV permite informar o caminho absoluto, útil no Claude Desktop,
+ * que não herda o PATH do terminal).
+ */
+function configured(value) {
+    const trimmed = value?.trim();
+    // Campo opcional não preenchido no Claude Desktop pode chegar como "${user_config.x}".
+    return trimmed && !trimmed.startsWith("${") ? trimmed : undefined;
+}
+export function resolveRunner(env = process.env) {
+    const python = configured(env.PMAL_PYTHON);
+    if (python)
+        return { kind: "python", executable: python };
+    return { kind: "uv", executable: configured(env.PMAL_UV) ?? "uv" };
+}
+export function resolveTimeoutMs(env = process.env) {
+    const value = Number(env.PMAL_TIMEOUT_MS);
+    return Number.isInteger(value) && value > 0 ? value : DEFAULT_TIMEOUT_MS;
+}
 export function parsePythonOutput(stdout) {
     if (Buffer.byteLength(stdout, "utf8") > MAX_STDOUT_BYTES) {
         throw new Error("A CLI excedeu o limite de stdout de 2 MiB.");
@@ -26,7 +48,7 @@ export const executeProcess = (executable, args, options) => new Promise((resolv
         shell: false,
         windowsHide: true,
         stdio: ["ignore", "pipe", "pipe"],
-        env: { ...process.env, PYTHONUTF8: "1" },
+        env: { ...process.env, ...options.env, PYTHONUTF8: "1" },
     });
     const stdout = [];
     const stderr = [];
@@ -40,7 +62,7 @@ export const executeProcess = (executable, args, options) => new Promise((resolv
             reject(error);
         }
     };
-    const timer = setTimeout(() => finishError(new Error("A CLI Python excedeu 15 segundos.")), options.timeoutMs);
+    const timer = setTimeout(() => finishError(new Error(`A CLI Python excedeu ${Math.round(options.timeoutMs / 1000)} segundos.`)), options.timeoutMs);
     child.stdout.on("data", (chunk) => {
         stdoutBytes += chunk.length;
         if (stdoutBytes > options.maxStdoutBytes) {
@@ -50,7 +72,9 @@ export const executeProcess = (executable, args, options) => new Promise((resolv
         stdout.push(chunk);
     });
     child.stderr.on("data", (chunk) => stderr.push(chunk));
-    child.on("error", finishError);
+    child.on("error", (error) => finishError(error.code === "ENOENT"
+        ? new Error(`Executável "${executable}" não encontrado. Configure PMAL_PYTHON (Python >= 3.12) ou PMAL_UV com caminho absoluto.`)
+        : error));
     child.on("close", (code) => {
         if (settled)
             return;
@@ -67,35 +91,50 @@ export class CoreClient {
     executor;
     databasePath;
     projectRoot;
-    constructor(projectRoot, executor = executeProcess, databasePath) {
+    runner;
+    timeoutMs;
+    constructor(projectRoot, executor = executeProcess, databasePath, options = {}) {
         this.executor = executor;
         this.databasePath = databasePath;
+        this.runner = options.runner ?? resolveRunner();
+        this.timeoutMs = options.timeoutMs ?? resolveTimeoutMs();
         if (!path.isAbsolute(projectRoot)) {
             throw new Error("projectRoot deve ser absoluto.");
         }
         this.projectRoot = path.resolve(projectRoot);
     }
     async call(command, input) {
-        const args = [
-            "run",
-            "--quiet",
-            "--project",
-            this.projectRoot,
-            "python",
+        const cliArgs = [
             "-m",
             "pmal_study.cli",
             command,
+            "--project-root",
+            this.projectRoot,
             "--input-json",
             JSON.stringify(input),
         ];
         if (this.databasePath)
-            args.push("--database", this.databasePath);
-        const output = await this.executor("uv", args, {
+            cliArgs.push("--database", this.databasePath);
+        const args = this.runner.kind === "python"
+            ? cliArgs
+            : ["run", "--quiet", "--project", this.projectRoot, "python", ...cliArgs];
+        const env = this.runner.kind === "python"
+            ? { PYTHONPATH: path.join(this.projectRoot, "src") }
+            : undefined;
+        const output = await this.executor(this.runner.executable, args, {
             cwd: this.projectRoot,
-            timeoutMs: 15_000,
+            timeoutMs: this.timeoutMs,
             maxStdoutBytes: MAX_STDOUT_BYTES,
+            ...(env ? { env } : {}),
         });
-        const envelope = parsePythonOutput(output.stdout);
+        let envelope;
+        try {
+            envelope = parsePythonOutput(output.stdout);
+        }
+        catch (error) {
+            const detail = output.stderr.trim().split(/\r?\n/).slice(-3).join(" | ");
+            throw detail ? new Error(`${error.message} stderr: ${detail}`) : error;
+        }
         if (output.exitCode !== 0 && envelope.ok) {
             throw new Error("A CLI encerrou com falha apesar de declarar sucesso.");
         }

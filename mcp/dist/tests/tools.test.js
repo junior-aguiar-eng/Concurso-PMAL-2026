@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { createToolCatalog } from "../src/tools.js";
+import { createToolCatalog } from "../tools.js";
 describe("catálogo MCP", () => {
     it("expõe ferramentas de dados sem vínculo de UI", () => {
         const catalog = createToolCatalog({
             call: async () => ({ ok: true, data: {} }),
-        });
+        }, { includeRender: false });
         expect(catalog.map((tool) => tool.name)).toEqual([
             "pmal_start_session",
             "pmal_next_question",
@@ -32,6 +32,11 @@ describe("catálogo MCP", () => {
             text: "Painel atualizado: 2 respostas e 0 revisões vencidas.",
         });
         expect(result?.structuredContent).toMatchObject({ attempts_total: 2, accuracy: 0.5 });
+        expect(JSON.parse(result?.content[1].text)).toEqual(result?.structuredContent);
+    });
+    it("inclui a ferramenta de renderização do painel por padrão", () => {
+        const catalog = createToolCatalog({ call: async () => ({ ok: true, data: {} }) });
+        expect(catalog.at(-1)?.name).toBe("pmal_render_dashboard");
     });
     it("mapeia falha Python para erro MCP estável", async () => {
         const catalog = createToolCatalog({

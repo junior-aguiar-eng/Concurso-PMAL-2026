@@ -1,0 +1,16 @@
+.git/
+.github/
+.codex-plugin/
+.mcp.json
+*.mcpb
+**/.pmal-study/
+**/.venv/
+**/__pycache__/
+**/.pytest_cache/
+*.db
+*.db-*
+runtime/tests/
+runtime/uv.lock
+mcp/dist/tests/
+mcp/package-lock.json
+docs/
