@@ -46,6 +46,10 @@ jobs:
         working-directory: mcp
         run: npm ci
 
+      - name: Verificar tipos
+        working-directory: mcp
+        run: npm run typecheck
+
       - name: Executar testes com vitest
         working-directory: mcp
         run: npm test

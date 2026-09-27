@@ -8,29 +8,22 @@ import { CoreClient } from "./core-client.js";
 import { createToolCatalog } from "./tools.js";
 import { registerDashboardResource } from "./ui-resource.js";
 import { registerPrompts, SERVER_INSTRUCTIONS } from "./prompts.js";
-/** runtime/ empacotado ao lado de mcp/, usado quando --project-root é omitido. */
+/** runtime/ que acompanha o servidor, usado quando --project-root é omitido. */
 export const BUNDLED_PROJECT_ROOT = fileURLToPath(new URL("../../runtime", import.meta.url));
 function optionValue(argv, flag) {
     const index = argv.indexOf(flag);
     return index >= 0 ? argv[index + 1] : undefined;
 }
-export function parseProjectRoot(argv, env = process.env) {
+export function parseProjectRoot(argv, cwd = process.cwd(), env = process.env) {
     const value = optionValue(argv, "--project-root") ?? env.PMAL_PROJECT_ROOT ?? BUNDLED_PROJECT_ROOT;
-    if (!path.isAbsolute(value)) {
-        throw new Error("Informe --project-root com caminho absoluto.");
-    }
-    return path.resolve(value);
+    return path.resolve(cwd, value);
 }
-/** Banco fora da pasta do código, para não se perder em atualizações da extensão. */
-export function parseDatabasePath(argv, env = process.env) {
+/** Banco explícito; sem ele, o CoreClient copia o banco-semente para PMAL_DATA_DIR. */
+export function parseDatabasePath(argv, cwd = process.cwd(), env = process.env) {
     const value = optionValue(argv, "--database") ?? env.PMAL_DATABASE?.trim();
-    // Pasta de dados não preenchida no Desktop chega como "${user_config...}" ou "/pmal-study.db".
-    if (!value || value.includes("${") || value === "/pmal-study.db")
+    if (!value || value.includes("${"))
         return undefined;
-    if (!path.isAbsolute(value)) {
-        throw new Error("Informe --database (ou PMAL_DATABASE) com caminho absoluto.");
-    }
-    return path.resolve(value);
+    return path.resolve(cwd, value);
 }
 export function parseTransport(argv) {
     const index = argv.indexOf("--transport");
@@ -41,7 +34,7 @@ export function parseTransport(argv) {
     return value;
 }
 export function createPmalServer(projectRoot, options = {}) {
-    const server = new McpServer({ name: "treinador-pmal-oficial", version: "0.1.0" }, {
+    const server = new McpServer({ name: "treinador-pmal-oficial", version: "0.3.1" }, {
         instructions: SERVER_INSTRUCTIONS,
     });
     const core = new CoreClient(projectRoot, undefined, options.databasePath);
@@ -51,6 +44,11 @@ export function createPmalServer(projectRoot, options = {}) {
     for (const entry of createToolCatalog(core, { includeRender: options.includeUi !== false })) {
         server.registerTool(entry.name, entry.definition, async (input) => entry.handler(input));
     }
+    const close = server.close.bind(server);
+    server.close = async () => {
+        await core.close();
+        await close();
+    };
     return server;
 }
 export function startHttpServer(projectRoot, port, options = {}) {

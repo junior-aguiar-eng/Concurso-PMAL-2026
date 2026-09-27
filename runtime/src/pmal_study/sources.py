@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import sqlite3
 import subprocess
+import tempfile
 import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -49,6 +51,22 @@ class SelectiveExtractionResult:
     requested_pages: int
     usable_pages: int
     failed_pages: int
+
+
+@dataclass(frozen=True, slots=True)
+class CorpusRefreshReport:
+    documents_found: int
+    documents_processed: int
+    documents_unchanged: int
+    documents_altered: int
+    total_pages: int
+    pages_processed: int
+    usable_pages: int
+    ocr_pages: int
+    empty_pages: int
+    quarantined_pages: int
+    failed_pages: int
+    chunks_created: int
 
 
 def _hash_file(path: Path) -> str:
@@ -240,6 +258,412 @@ def _extract_page(path: Path, page_number: int) -> tuple[str, str, float, float]
     text = _normalize_text(result.stdout.decode("utf-8", errors="replace"))
     status, letter_ratio, replacement_ratio = _quality(text)
     return text, status, letter_ratio, replacement_ratio
+
+
+def _extract_all_text_pages(path: Path, page_count: int) -> list[str]:
+    try:
+        result = _run_process(
+            ["pdftotext", "-enc", "UTF-8", str(path), "-"],
+            timeout=max(30, min(300, page_count * 2)),
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return [""] * page_count
+    if result.returncode != 0:
+        return [""] * page_count
+    raw_pages = result.stdout.decode("utf-8", errors="replace").split("\f")
+    if len(raw_pages) > page_count and not raw_pages[-1].strip():
+        raw_pages.pop()
+    pages = [_normalize_text(page) for page in raw_pages[:page_count]]
+    return pages + [""] * (page_count - len(pages))
+
+
+def _find_tesseract() -> str | None:
+    executable = shutil.which("tesseract")
+    if executable:
+        return executable
+    candidates = (
+        Path("C:/Program Files/Tesseract-OCR/tesseract.exe"),
+        Path("C:/Program Files (x86)/Tesseract-OCR/tesseract.exe"),
+        Path.home() / "AppData/Local/Programs/Tesseract-OCR/tesseract.exe",
+    )
+    return next((str(path) for path in candidates if path.is_file()), None)
+
+
+def _ocr_page(
+    path: Path,
+    page_number: int,
+    *,
+    tesseract_path: str | None = None,
+    tessdata_dir: Path | None = None,
+) -> str:
+    executable = tesseract_path or _find_tesseract()
+    if executable is None:
+        return ""
+    with tempfile.TemporaryDirectory(prefix="pmal-ocr-") as temporary:
+        output_base = Path(temporary) / "page"
+        try:
+            render = _run_process(
+                [
+                    "pdftoppm", "-f", str(page_number), "-l", str(page_number),
+                    "-r", "300", "-png", "-singlefile", str(path), str(output_base),
+                ],
+                timeout=120,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return ""
+        image_path = output_base.with_suffix(".png")
+        if render.returncode != 0 or not image_path.is_file():
+            return ""
+        arguments = [executable, str(image_path), "stdout"]
+        if tessdata_dir is not None:
+            arguments.extend(["--tessdata-dir", str(tessdata_dir)])
+        arguments.extend(["-l", "por" if tessdata_dir is not None else "eng", "--psm", "6"])
+        try:
+            result = _run_process(arguments, timeout=120)
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return ""
+        if result.returncode != 0:
+            return ""
+        return _normalize_text(result.stdout.decode("utf-8", errors="replace"))
+
+
+_STRUCTURAL_LINE = re.compile(
+    r"(?i)^(?:art\.?\s*\d+[ºo]?|§\s*\d+|[IVXLCDM]+\s*[-–—.]|"
+    r"(?:t[ií]tulo|cap[ií]tulo|se[cç][aã]o|livro|parte)\b)"
+)
+
+
+def _chunk_page(text: str, page_number: int, limit: int = 1800) -> list[tuple[str, str]]:
+    if not text.strip():
+        return []
+    blocks: list[list[str]] = []
+    current: list[str] = []
+    current_size = 0
+    for line in (line.strip() for line in text.splitlines() if line.strip()):
+        starts_unit = bool(_STRUCTURAL_LINE.match(line))
+        if current and (starts_unit or current_size + len(line) + 1 > limit):
+            blocks.append(current)
+            current = []
+            current_size = 0
+        current.append(line)
+        current_size += len(line) + 1
+    if current:
+        blocks.append(current)
+    chunks: list[tuple[str, str]] = []
+    for index, lines in enumerate(blocks, start=1):
+        chunk_text = "\n".join(lines)
+        first = lines[0][:120]
+        locator = first if _STRUCTURAL_LINE.match(first) else f"p. {page_number}, bloco {index}"
+        chunks.append((locator, chunk_text))
+    return chunks
+
+
+def _infer_discipline(relative_path: str) -> str | None:
+    normalized = unicodedata.normalize("NFKD", relative_path.casefold())
+    normalized = "".join(character for character in normalized if not unicodedata.combining(character))
+    if "cppm" in normalized or "processo penal militar" in normalized:
+        return "direito_processual_penal_militar"
+    if re.search(r"(?:^|/)cpm(?:/|\s|-)", normalized) or "penal militar" in normalized:
+        return "direito_penal_militar"
+    if "legislacao pmal" in normalized:
+        return "legislacao_pmal"
+    if "conhecimentos al" in normalized or "alagoas" in normalized:
+        return "conhecimentos_alagoas"
+    return None
+
+
+def _infer_authority(relative_path: str) -> str:
+    normalized = unicodedata.normalize("NFKD", relative_path.casefold())
+    normalized = "".join(character for character in normalized if not unicodedata.combining(character))
+    filename = Path(normalized).name
+    if filename.startswith(("cpm - del1001", "cppm - del1002")):
+        return "local_official_copy"
+    if normalized.startswith("legislacao pmal/") and filename.startswith(("estatuto", "rdpmal")):
+        return "local_official_copy"
+    if "edital" in filename:
+        return "exam_board"
+    return "didactic"
+
+
+_TOPIC_STOPWORDS = {
+    "das", "dos", "uma", "para", "pela", "pelo", "sobre", "como", "militar",
+    "militares", "direito", "estado", "alagoas", "policia", "processo", "penal",
+}
+
+
+def _topic_terms(value: str) -> set[str]:
+    normalized = unicodedata.normalize("NFKD", value.casefold())
+    normalized = "".join(character for character in normalized if not unicodedata.combining(character))
+    return {
+        token for token in re.findall(r"[a-z0-9]{3,}", normalized)
+        if token not in _TOPIC_STOPWORDS
+    }
+
+
+def enrich_chunk_metadata(connection: sqlite3.Connection) -> int:
+    """Classifica autoridade e tópico com metadados e sobreposição lexical auditável."""
+
+    topics: dict[str, list[tuple[str, str, set[str]]]] = {}
+    for topic_id, discipline, title in connection.execute(
+        "SELECT id, discipline, title FROM syllabus_topics"
+    ):
+        terms = _topic_terms(title)
+        if terms:
+            topics.setdefault(discipline, []).append((topic_id, title, terms))
+    updates: list[tuple[str, str | None, str]] = []
+    rows = connection.execute(
+        """
+        SELECT chunk.id, chunk.discipline, chunk.locator, chunk.text,
+               document.relative_path
+        FROM source_chunks AS chunk
+        JOIN source_document_versions AS version ON version.id = chunk.version_id
+        JOIN source_documents AS document ON document.id = chunk.document_id
+        WHERE version.is_current = 1 AND chunk.status IN ('usable', 'ocr')
+        """
+    ).fetchall()
+    for chunk_id, discipline, locator, text, relative_path in rows:
+        selected_topic: str | None = None
+        if discipline in topics:
+            haystack = _topic_terms(f"{locator} {str(text)[:3000]}")
+            candidates: list[tuple[float, str]] = []
+            normalized_text = unicodedata.normalize("NFKD", f"{locator} {str(text)[:3000]}".casefold())
+            normalized_text = "".join(character for character in normalized_text if not unicodedata.combining(character))
+            for topic_id, title, terms in topics[discipline]:
+                overlap = len(terms & haystack)
+                if overlap == 0:
+                    continue
+                phrase = unicodedata.normalize("NFKD", title.casefold())
+                phrase = "".join(character for character in phrase if not unicodedata.combining(character))
+                score = overlap / len(terms) + (2 if phrase in normalized_text else 0)
+                candidates.append((score, topic_id))
+            if candidates:
+                selected_topic = max(candidates)[1]
+        updates.append((_infer_authority(str(relative_path)), selected_topic, str(chunk_id)))
+    with transaction(connection):
+        connection.executemany(
+            "UPDATE source_chunks SET authority = ?, topic_id = coalesce(topic_id, ?) WHERE id = ?",
+            updates,
+        )
+    return len(updates)
+
+
+def _version_id(document_id: str, digest: str) -> str:
+    return f"{document_id}:{digest[:16]}"
+
+
+def refresh_corpus(
+    root: Path,
+    connection: sqlite3.Connection,
+    *,
+    tesseract_path: str | None = None,
+    tessdata_dir: Path | None = None,
+) -> CorpusRefreshReport:
+    """Atualiza incrementalmente páginas e fragmentos, preservando versões anteriores."""
+
+    project_root = Path(root).resolve()
+    catalog_sources(project_root, connection)
+    documents = connection.execute(
+        "SELECT id, relative_path, sha256, page_count, status FROM source_documents "
+        "ORDER BY relative_path"
+    ).fetchall()
+    processed = unchanged = altered = pages_processed = 0
+    usable_pages = ocr_pages = empty_pages = quarantined_pages = failed_pages = 0
+    chunks_created = 0
+
+    for document_id, relative_path, digest, page_count, catalog_status in documents:
+        version_id = _version_id(document_id, digest)
+        known_versions = connection.execute(
+            "SELECT id, sha256 FROM source_document_versions WHERE document_id = ?",
+            (document_id,),
+        ).fetchall()
+        page_rows = connection.execute(
+            "SELECT count(*), sum(content_hash IS NOT NULL), "
+            "sum(page_state IN ('usable', 'ocr')), sum(page_state = 'quarantined') "
+            "FROM source_pages WHERE document_id = ?",
+            (document_id,),
+        ).fetchone()
+        complete = page_rows[0] == page_count and (page_rows[1] or 0) == page_count
+        current_known = any(row[0] == version_id for row in known_versions)
+        indexed_chunks = connection.execute(
+            "SELECT count(*) FROM source_chunks WHERE version_id = ? AND status <> 'superseded'",
+            (version_id,),
+        ).fetchone()[0]
+        indexed = indexed_chunks > 0 or (page_rows[2] or 0) == 0
+        if current_known and complete and indexed:
+            quality = (page_rows[2] or 0) / max(page_count, 1)
+            connection.execute(
+                "UPDATE source_documents SET status = ?, quality = ? WHERE id = ?",
+                (
+                    "ocr_required" if (page_rows[3] or 0) else "usable",
+                    quality,
+                    document_id,
+                ),
+            )
+            unchanged += 1
+            continue
+        if known_versions and not current_known:
+            altered += 1
+
+        source_path = project_root / relative_path
+        force_ocr = catalog_status == "ocr_required"
+        text_pages = [""] * page_count if force_ocr else _extract_all_text_pages(source_path, page_count)
+        page_records: list[tuple[Any, ...]] = []
+        chunk_records: list[tuple[Any, ...]] = []
+        document_usable_pages = 0
+        discipline = _infer_discipline(relative_path)
+        for page_number in range(1, page_count + 1):
+            text = text_pages[page_number - 1]
+            text_status, letter_ratio, replacement_ratio = _quality(text)
+            extraction_method = "text"
+            page_state = "usable" if text_status == "usable" else "empty"
+            quarantine_reason = None
+            if text_status != "usable":
+                ocr_text = _ocr_page(
+                    source_path,
+                    page_number,
+                    tesseract_path=tesseract_path,
+                    tessdata_dir=tessdata_dir,
+                )
+                ocr_status, letter_ratio, replacement_ratio = _quality(ocr_text)
+                extraction_method = "ocr"
+                if ocr_status == "usable":
+                    text = ocr_text
+                    page_state = "ocr"
+                    ocr_pages += 1
+                    document_usable_pages += 1
+                else:
+                    text = ocr_text
+                    if not ocr_text.strip():
+                        page_state = "empty"
+                        quarantine_reason = "Página sem conteúdo textual detectável"
+                        empty_pages += 1
+                    else:
+                        page_state = "quarantined"
+                        quarantine_reason = "OCR sem texto utilizável"
+                        quarantined_pages += 1
+            else:
+                usable_pages += 1
+                document_usable_pages += 1
+            legacy_status = (
+                "usable" if page_state in {"usable", "ocr"}
+                else "ocr_required" if page_state in {"empty", "quarantined"}
+                else "extraction_failed"
+            )
+            content_hash = sha256(text.encode("utf-8")).hexdigest()
+            page_records.append(
+                (
+                    document_id, page_number, text, legacy_status, letter_ratio,
+                    replacement_ratio, page_state, extraction_method, content_hash,
+                    quarantine_reason,
+                )
+            )
+            for locator, chunk_text in _chunk_page(text, page_number):
+                chunk_hash = sha256(chunk_text.encode("utf-8")).hexdigest()
+                chunk_id = sha256(
+                    f"{version_id}|{page_number}|{locator}|{chunk_hash}".encode("utf-8")
+                ).hexdigest()
+                chunk_records.append(
+                    (
+                        chunk_id, version_id, document_id, page_number, page_number,
+                        locator, chunk_text, chunk_hash, discipline, _infer_authority(relative_path),
+                        "ocr" if page_state == "ocr" else "usable",
+                    )
+                )
+
+        with transaction(connection):
+            connection.execute(
+                "UPDATE source_document_versions SET is_current = 0 WHERE document_id = ?",
+                (document_id,),
+            )
+            connection.execute(
+                "UPDATE source_chunks SET status = 'superseded' WHERE document_id = ? "
+                "AND version_id <> ? AND status <> 'superseded'",
+                (document_id, version_id),
+            )
+            connection.execute(
+                """
+                INSERT INTO source_document_versions(
+                    id, document_id, sha256, page_count, status, processed_at,
+                    is_current, extraction_diagnostics
+                ) VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+                ON CONFLICT(document_id, sha256) DO UPDATE SET
+                    is_current = 1,
+                    processed_at = excluded.processed_at,
+                    status = excluded.status,
+                    extraction_diagnostics = excluded.extraction_diagnostics
+                """,
+                (
+                    version_id, document_id, digest, page_count,
+                    "quarantined" if any(row[6] == "quarantined" for row in page_records) else "usable",
+                    datetime.now(UTC).isoformat(),
+                    "Há páginas em quarentena" if any(row[6] == "quarantined" for row in page_records) else None,
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO source_pages(
+                    document_id, page_number, text, status, letter_ratio,
+                    replacement_ratio, page_state, extraction_method, content_hash,
+                    quarantine_reason
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(document_id, page_number) DO UPDATE SET
+                    text = excluded.text,
+                    status = excluded.status,
+                    letter_ratio = excluded.letter_ratio,
+                    replacement_ratio = excluded.replacement_ratio,
+                    page_state = excluded.page_state,
+                    extraction_method = excluded.extraction_method,
+                    content_hash = excluded.content_hash,
+                    quarantine_reason = excluded.quarantine_reason
+                """,
+                page_records,
+            )
+            connection.executemany(
+                """
+                INSERT INTO source_chunks(
+                    id, version_id, document_id, page_start, page_end, locator,
+                    text, sha256, discipline, authority, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET status = excluded.status
+                """,
+                chunk_records,
+            )
+            connection.execute(
+                "UPDATE source_documents SET status = ?, quality = ?, processed_at = ? WHERE id = ?",
+                (
+                    "ocr_required" if any(row[6] == "quarantined" for row in page_records) else "usable",
+                    document_usable_pages / max(page_count, 1),
+                    datetime.now(UTC).isoformat(), document_id,
+                ),
+            )
+        processed += 1
+        pages_processed += page_count
+        chunks_created += len(chunk_records)
+
+    enrich_chunk_metadata(connection)
+    totals = connection.execute(
+        """
+        SELECT count(*),
+               sum(page_state = 'usable'), sum(page_state = 'ocr'),
+               sum(page_state = 'empty'), sum(page_state = 'quarantined'),
+               sum(page_state = 'extraction_failed')
+        FROM source_pages
+        """
+    ).fetchone()
+    return CorpusRefreshReport(
+        documents_found=len(documents),
+        documents_processed=processed,
+        documents_unchanged=unchanged,
+        documents_altered=altered,
+        total_pages=totals[0] or 0,
+        pages_processed=pages_processed,
+        usable_pages=totals[1] or 0,
+        ocr_pages=totals[2] or 0,
+        empty_pages=totals[3] or 0,
+        quarantined_pages=totals[4] or 0,
+        failed_pages=totals[5] or 0,
+        chunks_created=chunks_created,
+    )
 
 
 def extract_document(

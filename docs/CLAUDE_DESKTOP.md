@@ -3,55 +3,63 @@
 ## Requisitos
 
 - **Python 3.12+** (recomendado; o núcleo não tem dependências externas) **ou** [uv](https://docs.astral.sh/uv/).
-- Node.js não é necessário na opção A: o Claude Desktop traz seu próprio Node.
+- Opcional, só para indexar PDFs novos: `pdftotext` (Poppler) no PATH.
+- Node.js não é necessário: o Claude Desktop traz o seu.
 
-## Opção A — Extensão `.mcpb` (recomendada)
+## Instalação (extensão `.mcpb`)
 
-1. Gere o pacote: `./scripts/build-desktop-extension.sh` (ou use o `.mcpb` já distribuído).
-2. Claude Desktop → **Configurações → Extensões** → arraste `treinador-pmal-oficial.mcpb` (ou dê duplo clique).
+1. Gere o pacote com o banco-semente do acervo:
+   `PMAL_SEED_DB=/caminho/pmal-study-seed.db ./scripts/build-desktop-extension.sh`
+2. Claude Desktop → **Configurações → Extensões** → arraste `treinador-pmal-oficial.mcpb`.
 3. Preencha:
-   - **Python 3.12+**: caminho do executável (`which python3` / `where python`). Se vazio, usa o uv.
-   - **Pasta de dados**: padrão `~/.pmal-study`. O histórico (SQLite) fica aqui e sobrevive a atualizações.
+   - **Python 3.12+**: caminho do executável (`where python` no Windows). Se vazio, usa o uv.
+   - **Pasta de dados**: padrão `~/.pmal-study`. Recebe uma cópia do banco-semente na primeira execução e guarda seu histórico; sobrevive a atualizações da extensão.
+   - **Pasta dos PDFs** (opcional): usada por “Atualizar acervo” para indexar PDFs novos ou alterados.
 
-## Opção B — Configuração manual
+> O banco-semente contém o texto indexado de materiais de terceiros e **não é versionado** no repositório público.
 
-Clone o repositório, rode `npm ci` em `mcp/` e edite `claude_desktop_config.json`
-(macOS: `~/Library/Application Support/Claude/`; Windows: `%APPDATA%\Claude\`):
+## Uso
+
+- Menu **+ → Treinador PMAL Oficial**: *Estudar por tempo*, *Revisar pendências*, *Diagnóstico*, *Simulado misto*, *Estudar no chat (sem painel)* e *Painel de desempenho*.
+- O padrão é o **ambiente de estudo interativo** (`pmal_open_study_panel`): o ciclo questão → C/E + confiança → correção acontece no painel. Pedidos do painel (gerar questão inédita, dissecar dúvida) chegam ao Claude como identificadores de trabalho, processados por `pmal_claim_host_job`.
+- Se o painel não aparecer, use *Estudar no chat*: o Claude conduz pelo fluxo textual, gerando questões inéditas a partir das evidências do acervo e congelando-as antes de apresentar.
+- As regras de condução vão nas instruções do servidor; o Desktop não depende da pasta `skills/`.
+
+## Configuração manual (alternativa)
+
+`claude_desktop_config.json` (Windows: `%APPDATA%\Claude\`; macOS: `~/Library/Application Support/Claude/`):
 
 ```json
 {
   "mcpServers": {
     "treinador-pmal-oficial": {
       "command": "node",
-      "args": ["/CAMINHO/Concurso-PMAL-2026/mcp/dist/index.js", "--transport", "stdio"],
+      "args": ["C:\\CAMINHO\\Concurso-PMAL-2026\\mcp\\dist\\index.js", "--transport", "stdio"],
       "env": {
-        "PMAL_PYTHON": "/usr/local/bin/python3",
-        "PMAL_DATABASE": "/Users/SEU_USUARIO/.pmal-study/pmal-study.db"
+        "PMAL_PYTHON": "C:\\CAMINHO\\python.exe",
+        "PMAL_DATA_DIR": "C:\\Users\\SEU_USUARIO\\.pmal-study"
       }
     }
   }
 }
 ```
 
-Reinicie o Claude Desktop. No Windows, use barras duplas (`C:\\Python312\\python.exe`).
+Coloque o banco-semente em `runtime/corpus/pmal-study-seed.db` antes do primeiro uso.
 
 ## Variáveis de ambiente
 
 | Variável | Efeito |
 |---|---|
-| `PMAL_PYTHON` | Executa o núcleo direto com esse Python (dispensa o uv). |
+| `PMAL_PYTHON` | Executa o worker direto com esse Python (dispensa o uv). |
 | `PMAL_UV` | Caminho absoluto do uv, quando `PMAL_PYTHON` não é usado. |
-| `PMAL_DATABASE` | Caminho absoluto do banco SQLite. Padrão: `runtime/.pmal-study/pmal-study.db`. |
-| `PMAL_PROJECT_ROOT` | Pasta `runtime/`. Padrão: a que acompanha o servidor. |
-| `PMAL_TIMEOUT_MS` | Limite por chamada da CLI (padrão 30000). |
-
-## Uso
-
-- Menu **+ → Treinador PMAL Oficial** oferece os prompts: *Estudar por tempo*, *Revisar pendências*, *Diagnóstico*, *Simulado misto* e *Painel de desempenho*.
-- Ou peça em linguagem natural: "Quero treinar Direito Penal Militar por 30 minutos."
-- As regras de condução (uma questão por vez, C/E + confiança 0–3, só as quatro disciplinas) são enviadas pelo próprio servidor, sem depender da pasta `skills/`.
+| `PMAL_DATA_DIR` | Pasta do banco (padrão `~/.codex/state/treinador-pmal-oficial`, compatível com o Codex). |
+| `PMAL_DATABASE` | Caminho explícito do banco (dispensa a cópia do banco-semente). |
+| `PMAL_SOURCE_ROOT` | Pasta dos PDFs para “Atualizar acervo”. |
+| `PMAL_PROJECT_ROOT` | Pasta `runtime/` (padrão: a que acompanha o servidor). |
+| `PMAL_TIMEOUT_MS` | Limite por chamada ao worker (padrão 30000). |
 
 ## Problemas comuns
 
-- **"Executável uv não encontrado"**: o Desktop não herda o PATH do terminal. Informe o caminho do Python (ou do uv).
-- **Logs**: macOS `~/Library/Logs/Claude/mcp-server-treinador-pmal-oficial.log`; Windows `%APPDATA%\Claude\logs\`.
+- **“Executável uv não encontrado”**: o Desktop não herda o PATH; informe o caminho do Python.
+- **Painel não aparece**: use o prompt *Estudar no chat*.
+- **Logs**: Windows `%APPDATA%\Claude\logs\mcp-server-treinador-pmal-oficial.log`; macOS `~/Library/Logs/Claude/`.

@@ -106,6 +106,7 @@ def rank_questions(
         JOIN syllabus_topics AS topic ON topic.id = question.topic_id
         LEFT JOIN review_state AS review ON review.question_id = question.id
         WHERE question.status = 'validated' AND question.relevance = 'direct'
+          AND question.delivery_policy = 'replayable'
         {discipline_clause}
         """,
         tuple(parameters),

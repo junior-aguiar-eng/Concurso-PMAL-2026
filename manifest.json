@@ -2,9 +2,9 @@
   "manifest_version": "0.2",
   "name": "treinador-pmal-oficial",
   "display_name": "Treinador PMAL Oficial",
-  "version": "0.2.0",
-  "description": "Sessões adaptativas de questões C/E e revisão espaçada para Oficial da PMAL.",
-  "long_description": "Treinador local de questões Cebraspe com revisão espaçada, cobertura do edital e painel de desempenho, restrito a Direito Penal Militar, Direito Processual Penal Militar, Legislação PMAL e Conhecimentos de Alagoas. O histórico fica em SQLite na pasta de dados escolhida.",
+  "version": "0.3.1",
+  "description": "Tutor adaptativo com questões Cebraspe inéditas geradas a partir do seu acervo e revisão espaçada para Oficial da PMAL.",
+  "long_description": "Ambiente de estudo interativo com questões C/E oficiais e inéditas (geradas e congeladas a partir de evidências do acervo local), correção comentada, dissecação de dúvidas, revisão espaçada por conceito e painel de desempenho, restrito a Direito Penal Militar, Direito Processual Penal Militar, Legislação PMAL e Conhecimentos de Alagoas.",
   "author": {
     "name": "Boni Jr"
   },
@@ -23,34 +23,79 @@
       "env": {
         "PMAL_PYTHON": "${user_config.python_path}",
         "PMAL_UV": "${user_config.uv_path}",
-        "PMAL_DATABASE": "${user_config.data_dir}/pmal-study.db"
+        "PMAL_DATA_DIR": "${user_config.data_dir}",
+        "PMAL_SOURCE_ROOT": "${user_config.source_dir}"
       }
     }
   },
   "tools": [
     {
+      "name": "pmal_open_study_panel",
+      "description": "Abre o ambiente de estudo interativo."
+    },
+    {
       "name": "pmal_start_session",
-      "description": "Inicia sessão de diagnóstico, treino, revisão ou simulado."
+      "description": "Inicia sessão pelo fluxo textual."
     },
     {
       "name": "pmal_next_question",
-      "description": "Obtém a próxima questão sem revelar o gabarito."
+      "description": "Próxima questão oficial ou brief para questão inédita."
+    },
+    {
+      "name": "pmal_prepare_next_item",
+      "description": "Prepara evidências para gerar questão inédita."
+    },
+    {
+      "name": "pmal_search_evidence",
+      "description": "Refina a busca no acervo local."
+    },
+    {
+      "name": "pmal_register_live_evidence",
+      "description": "Registra trecho de fonte oficial consultada na web."
+    },
+    {
+      "name": "pmal_commit_generated_question",
+      "description": "Valida e congela uma questão inédita."
     },
     {
       "name": "pmal_submit_answer",
-      "description": "Corrige resposta C/E com confiança de 0 a 3 e agenda revisão."
+      "description": "Corrige resposta C/E com confiança e agenda revisão."
+    },
+    {
+      "name": "pmal_claim_host_job",
+      "description": "Obtém o contexto de um trabalho pedido pelo painel."
+    },
+    {
+      "name": "pmal_complete_generation_job",
+      "description": "Conclui geração pedida pelo painel."
+    },
+    {
+      "name": "pmal_complete_dissection_job",
+      "description": "Conclui dissecação pedida pelo painel."
+    },
+    {
+      "name": "pmal_fail_host_job",
+      "description": "Registra falha de trabalho do painel."
+    },
+    {
+      "name": "pmal_set_exemplar",
+      "description": "Aprova ou revoga questão como exemplar."
+    },
+    {
+      "name": "pmal_refresh_corpus",
+      "description": "Indexa PDFs novos ou alterados do acervo."
     },
     {
       "name": "pmal_get_dashboard",
-      "description": "Consulta desempenho, domínio e revisões vencidas."
+      "description": "Desempenho, domínio e revisões vencidas."
     },
     {
       "name": "pmal_get_review_queue",
-      "description": "Lista questões pendentes de revisão."
+      "description": "Fila de revisão."
     },
     {
       "name": "pmal_export_canvas_summary",
-      "description": "Gera resumo Markdown do desempenho."
+      "description": "Resumo Markdown do desempenho."
     },
     {
       "name": "pmal_check_official_source",
@@ -58,7 +103,7 @@
     },
     {
       "name": "pmal_render_dashboard",
-      "description": "Exibe o painel interativo."
+      "description": "Exibe o painel de desempenho."
     }
   ],
   "keywords": [
@@ -83,21 +128,28 @@
     "python_path": {
       "type": "file",
       "title": "Python 3.12+ (recomendado)",
-      "description": "Caminho do executável Python (ex.: /usr/local/bin/python3 ou C:\\\\Python312\\\\python.exe). Se vazio, o uv será usado.",
+      "description": "Executável Python (ex.: C:\\Users\\voce\\AppData\\Local\\Programs\\Python\\Python312\\python.exe). Se vazio, usa o uv.",
       "required": false
     },
     "uv_path": {
       "type": "file",
       "title": "uv (alternativa)",
-      "description": "Caminho absoluto do uv, usado só se o Python não for informado. Se vazio, procura 'uv' no PATH.",
+      "description": "Caminho absoluto do uv, usado só se o Python não for informado.",
       "required": false
     },
     "data_dir": {
       "type": "directory",
       "title": "Pasta de dados",
-      "description": "Onde fica o banco SQLite com seu histórico. Fora da pasta da extensão para sobreviver a atualizações.",
+      "description": "Onde fica o banco com seu histórico e o acervo indexado. Na primeira execução recebe uma cópia do banco-semente.",
       "required": true,
       "default": "${HOME}/.pmal-study"
+    },
+    "source_dir": {
+      "type": "directory",
+      "title": "Pasta dos PDFs (opcional)",
+      "description": "Pasta com seus PDFs de estudo, usada por 'Atualizar acervo' para indexar arquivos novos ou alterados.",
+      "required": false
     }
-  }
+  },
+  "prompts_generated": true
 }

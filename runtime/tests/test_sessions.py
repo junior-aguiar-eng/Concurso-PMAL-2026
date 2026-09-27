@@ -75,7 +75,7 @@ def test_dashboard_metrics(db_connection, frozen_now):
     service = StudyService(db_connection, clock=lambda: frozen_now)
     dashboard = service.get_dashboard()
 
-    assert dashboard["study_bank"] == 19
+    assert dashboard["study_bank"] == 23
     assert dashboard["attempts_total"] == 0
     assert len(dashboard["discipline_metrics"]) == 4
     assert dashboard["syllabus"]["topics_total"] == 109

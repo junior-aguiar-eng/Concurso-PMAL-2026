@@ -174,6 +174,24 @@ def import_syllabus(path: Path, connection: sqlite3.Connection) -> int:
                 for topic in topics
             ),
         )
+        connection.executemany(
+            """
+            INSERT INTO learning_targets(
+                id, discipline, topic_id, concept_key, title, historical_frequency
+            ) VALUES (?, ?, ?, ?, ?, 0)
+            ON CONFLICT(discipline, concept_key) DO UPDATE SET
+                topic_id = excluded.topic_id,
+                title = excluded.title,
+                active = 1
+            """,
+            (
+                (
+                    f"legacy:{topic.id}", topic.discipline.value, topic.id,
+                    f"legacy:{topic.id}", topic.title,
+                )
+                for topic in topics
+            ),
+        )
     return len(topics)
 
 

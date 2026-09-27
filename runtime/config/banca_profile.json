@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "sample": {
+    "exam_count": 2,
+    "question_count": 240,
+    "years": [
+      2017,
+      2018
+    ]
+  },
+  "sources": [
+    {
+      "document": "cespe-cebraspe-2017-pm-al-soldado-da-policia-militar-prova.pdf",
+      "sha256": "1f0fa1c04230967a41babb3d74bbe849f1621c6af340f819d3ef0c27fb433ff4",
+      "question_count": 120
+    },
+    {
+      "document": "cespe-2018-pm-al-soldado-da-policia-militar-prova.pdf",
+      "sha256": "f31793d355942a0f6a77cb06b05091cb853d445f2c163a1d34dc1ce0d425ce6c",
+      "question_count": 120
+    }
+  ],
+  "patterns": {
+    "hypothetical_situation_count": 12,
+    "assertion_marker_count": 11,
+    "absolute_term_counts": {
+      "não": 58,
+      "sempre": 2,
+      "somente": 4,
+      "apenas": 5,
+      "qualquer": 8,
+      "exclusivamente": 3,
+      "necessariamente": 0,
+      "vedado": 0,
+      "vedada": 3,
+      "em nenhuma hipótese": 1
+    },
+    "word_count": {
+      "mean": 37.69,
+      "median": 28,
+      "p90": 62
+    },
+    "long_item_count_50_plus_words": 39
+  },
+  "scope_policy": {
+    "style_corpus": "todas_as_questoes_cebraspe_das_provas_analisadas",
+    "study_corpus": [
+      "direito_penal_militar",
+      "direito_processual_penal_militar",
+      "legislacao_pmal",
+      "conhecimentos_alagoas"
+    ],
+    "cross_discipline_frequency_affects_subject_weight": false
+  }
+}
