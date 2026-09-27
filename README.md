@@ -29,8 +29,11 @@ Plugin dedicado para preparação e estudo adaptativo do concurso de Oficial da 
 ## 🚀 Como Executar
 
 ### Pré-requisitos
-- Node.js >= 24
-- Python >= 3.12
+- Node.js >= 22
+- Python >= 3.12 (ou uv)
+
+### Claude Desktop
+Instale a extensão `.mcpb` gerada por `./scripts/build-desktop-extension.sh` ou configure manualmente. Veja [docs/CLAUDE_DESKTOP.md](docs/CLAUDE_DESKTOP.md).
 
 ### Configuração do MCP
 O servidor MCP expõe as ferramentas `pmal_*`:

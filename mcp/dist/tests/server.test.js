@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { afterEach, describe, expect, it } from "vitest";
-import { startHttpServer } from "../src/index.js";
+import { startHttpServer } from "../index.js";
 describe("servidor MCP local", () => {
     const resources = [];
     afterEach(async () => {
@@ -27,11 +27,22 @@ describe("servidor MCP local", () => {
         const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${address.port}/mcp`));
         await client.connect(transport);
         const listed = await client.listTools();
+        const prompts = await client.listPrompts();
+        const studyPrompt = await client.getPrompt({
+            name: "pmal_estudar",
+            arguments: { minutos: "20", disciplinas: "legislacao_pmal" },
+        });
         const dashboard = await client.callTool({
             name: "pmal_get_dashboard",
             arguments: {},
         });
         expect(listed.tools.map((tool) => tool.name)).toContain("pmal_submit_answer");
+        expect(prompts.prompts.map((prompt) => prompt.name)).toContain("pmal_revisar");
+        expect(studyPrompt.messages[0].content).toMatchObject({
+            type: "text",
+            text: expect.stringContaining('disciplines=["legislacao_pmal"]'),
+        });
+        expect(client.getInstructions()).toContain("direito_penal_militar");
         expect(dashboard.isError).not.toBe(true);
         expect(dashboard.structuredContent).toMatchObject({ study_bank: 19 });
     }, 20_000);

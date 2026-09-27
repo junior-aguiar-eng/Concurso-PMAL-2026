@@ -32,3 +32,6 @@ htmlcov/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Pacote da extensão Claude Desktop
+*.mcpb

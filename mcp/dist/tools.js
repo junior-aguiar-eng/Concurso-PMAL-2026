@@ -11,8 +11,13 @@ function errorResult(code, message) {
 function dataResult(data, output, summarize) {
     const parsed = output.parse(data);
     const structuredContent = (Array.isArray(parsed) ? { items: parsed } : parsed);
+    // O JSON também vai em texto: clientes que repassam ao modelo só o content
+    // (e não o structuredContent) precisam enxergar enunciado, gabarito e fundamento.
     return {
-        content: [{ type: "text", text: summarize(parsed) }],
+        content: [
+            { type: "text", text: summarize(parsed) },
+            { type: "text", text: JSON.stringify(structuredContent) },
+        ],
         structuredContent,
     };
 }
@@ -37,7 +42,7 @@ export function createToolCatalog(core, options = {}) {
             title: "Iniciar sessão PMAL",
             description: "Use this when o estudante quiser iniciar diagnóstico, treino, revisão ou simulado PMAL Oficial.",
             inputSchema: {
-                mode: SessionModeSchema,
+                mode: SessionModeSchema.describe("diagnostic = itens inéditos; timed = estudo por N minutos; discipline = filtra por disciplines; review = fila de revisão; mixed_mock = simulado misto."),
                 duration_minutes: schema.number().int().min(1).max(480).optional(),
                 disciplines: schema.array(schema.string().min(1)).optional().describe("Somente: direito_penal_militar, direito_processual_penal_militar, legislacao_pmal ou conhecimentos_alagoas."),
             },
@@ -80,11 +85,11 @@ export function createToolCatalog(core, options = {}) {
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         }, "review-queue", ReviewQueueSchema, (data) => `Fila de revisão consultada: ${data.length} questões.`),
         tool("pmal_export_canvas_summary", {
-            title: "Exportar resumo para Canvas",
-            description: "Use this when o estudante quiser um resumo Markdown editável no Canvas.",
+            title: "Exportar resumo em Markdown",
+            description: "Use this when o estudante quiser um resumo Markdown do desempenho (para Canvas, artefato ou documento).",
             inputSchema: {},
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
-        }, "export-canvas", CanvasExportSchema, () => "Resumo Markdown gerado para o Canvas."),
+        }, "export-canvas", CanvasExportSchema, () => "Resumo Markdown gerado."),
         tool("pmal_check_official_source", {
             title: "Verificar fonte jurídica oficial",
             description: "Use this when uma sessão exigir consulta atual ao Planalto, STF ou STJ, com URL e citação explícitas.",

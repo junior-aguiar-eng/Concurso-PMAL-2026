@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PublicQuestionSchema } from "../src/schemas.js";
+import { PublicQuestionSchema } from "../schemas.js";
 describe("PublicQuestionSchema", () => {
     it("rejeita qualquer gabarito na questão pública", () => {
         const parsed = PublicQuestionSchema.safeParse({
