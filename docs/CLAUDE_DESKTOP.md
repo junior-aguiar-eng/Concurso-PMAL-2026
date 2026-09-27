@@ -25,6 +25,20 @@
 - Se o painel não aparecer, use *Estudar no chat*: o Claude conduz pelo fluxo textual, gerando questões inéditas a partir das evidências do acervo e congelando-as antes de apresentar.
 - As regras de condução vão nas instruções do servidor; o Desktop não depende da pasta `skills/`.
 
+## Organização da pasta dos PDFs
+
+A classificação usa o caminho do arquivo:
+
+| Onde colocar | Classificação |
+|---|---|
+| `Legislação Oficial/` (íntegra da lei, ex.: `Lei 8.072-1990 - Hediondos.pdf`) | cópia oficial; tópico pelo número da lei |
+| `CPM - DEL1001Compilado.pdf`, `CPPM - DEL1002Compilado.pdf` | cópia oficial; tópico pela faixa de artigos |
+| `CPM/`, `CPPM/`, `Legislação PMAL/`, `Conhecimentos AL/` | material didático da disciplina |
+| Outras pastas sem disciplina reconhecível | indexadas, mas **excluídas** das evidências |
+
+Material didático exige confirmação em fonte oficial antes de fundamentar questão; cópia oficial dispensa.
+Atualizar o acervo com uma pasta que não contém os PDFs antigos não apaga o que já foi indexado.
+
 ## Configuração manual (alternativa)
 
 `claude_desktop_config.json` (Windows: `%APPDATA%\Claude\`; macOS: `~/Library/Application Support/Claude/`):
