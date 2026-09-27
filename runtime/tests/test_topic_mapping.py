@@ -22,6 +22,7 @@ def test_detecta_artigo_e_numero_da_lei():
     assert first_article("§ 1º É de cinco dias o prazo") is None
     assert law_topic("Legislação Oficial/Lei 8.072-1990 - Crimes Hediondos.pdf") == "leg.4"
     assert law_topic("Legislação Oficial/Decreto 37.042-1996 RDPMAL.pdf") == "leg.2"
+    assert law_topic("Legislação Oficial/Lei 9.381-2024 - Altera Estatuto PMAL.pdf") == "leg.1"
     assert law_topic("CPM/2024-05-21-imputabilidade.pdf") is None
 
 
