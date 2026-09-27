@@ -114,14 +114,22 @@ def source_pdf_hashes(root: Path) -> dict[str, str]:
     }
 
 
+_PACKAGE_CONFIG = Path(__file__).resolve().parents[2] / "config"
+
+
 def _load_overrides(root: Path) -> dict[str, dict[str, Any]]:
-    path = root / "config" / "source_overrides.json"
-    if not path.exists():
-        return {}
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise ValueError("source_overrides.json deve conter um objeto JSON.")
-    return payload
+    """Exceções por documento: as do runtime empacotado, sobrepostas pelas do acervo."""
+
+    merged: dict[str, dict[str, Any]] = {}
+    for directory in dict.fromkeys((_PACKAGE_CONFIG, Path(root) / "config")):
+        path = directory / "source_overrides.json"
+        if not path.exists():
+            continue
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("source_overrides.json deve conter um objeto JSON.")
+        merged.update(payload)
+    return merged
 
 
 def _run_process(arguments: list[str], timeout: int = 30) -> subprocess.CompletedProcess[bytes]:
@@ -296,42 +304,105 @@ def _find_tesseract() -> str | None:
     return next((str(path) for path in candidates if path.is_file()), None)
 
 
+_LANGUAGE_CACHE: dict[str, set[str]] = {}
+
+
+def _tesseract_languages(executable: str, tessdata_dir: Path | None) -> set[str]:
+    key = f"{executable}|{tessdata_dir}"
+    if key not in _LANGUAGE_CACHE:
+        arguments = [executable, "--list-langs"]
+        if tessdata_dir is not None:
+            arguments.extend(["--tessdata-dir", str(tessdata_dir)])
+        try:
+            result = _run_process(arguments, timeout=30)
+            lines = result.stdout.decode("utf-8", errors="replace").splitlines()
+            _LANGUAGE_CACHE[key] = {line.strip() for line in lines[1:] if line.strip()}
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            _LANGUAGE_CACHE[key] = set()
+    return _LANGUAGE_CACHE[key]
+
+
+def _page_size_points(path: Path, page_number: int) -> tuple[float, float] | None:
+    try:
+        result = _run_process(
+            ["pdfinfo", "-f", str(page_number), "-l", str(page_number), str(path)], timeout=30
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    match = re.search(rb"Page\s+\d+\s+size:\s+([\d.]+)\s+x\s+([\d.]+)", result.stdout)
+    return (float(match.group(1)), float(match.group(2))) if match else None
+
+
+def _ocr_regions(
+    path: Path, page_number: int, layout: dict[str, Any] | None, resolution: int
+) -> list[tuple[list[str], str]]:
+    """Recortes a renderizar e o modo de segmentação de cada um.
+
+    Página única: segmentação automática (psm 3). Duas colunas declaradas: cabeçalho
+    descartado e cada coluna lida isoladamente (psm 4), evitando linhas intercaladas.
+    """
+
+    single = [([], "3")]
+    if not layout or int(layout.get("columns", 1)) != 2:
+        return single
+    if page_number in {int(item) for item in layout.get("single_column_pages", [])}:
+        return single
+    size = _page_size_points(path, page_number)
+    if size is None:
+        return single
+    width = round(size[0] * resolution / 72)
+    height = round(size[1] * resolution / 72)
+    top = round(height * float(layout.get("header_ratio", 0.03)))
+    half = width // 2
+    return [
+        (["-x", "0", "-y", str(top), "-W", str(half), "-H", str(height - top)], "4"),
+        (["-x", str(half), "-y", str(top), "-W", str(width - half), "-H", str(height - top)], "4"),
+    ]
+
+
 def _ocr_page(
     path: Path,
     page_number: int,
     *,
     tesseract_path: str | None = None,
     tessdata_dir: Path | None = None,
+    layout: dict[str, Any] | None = None,
 ) -> str:
     executable = tesseract_path or _find_tesseract()
     if executable is None:
         return ""
+    language = "por" if "por" in _tesseract_languages(executable, tessdata_dir) else "eng"
+    resolution = 300
+    texts: list[str] = []
     with tempfile.TemporaryDirectory(prefix="pmal-ocr-") as temporary:
-        output_base = Path(temporary) / "page"
-        try:
-            render = _run_process(
-                [
-                    "pdftoppm", "-f", str(page_number), "-l", str(page_number),
-                    "-r", "300", "-png", "-singlefile", str(path), str(output_base),
-                ],
-                timeout=120,
-            )
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            return ""
-        image_path = output_base.with_suffix(".png")
-        if render.returncode != 0 or not image_path.is_file():
-            return ""
-        arguments = [executable, str(image_path), "stdout"]
-        if tessdata_dir is not None:
-            arguments.extend(["--tessdata-dir", str(tessdata_dir)])
-        arguments.extend(["-l", "por" if tessdata_dir is not None else "eng", "--psm", "6"])
-        try:
-            result = _run_process(arguments, timeout=120)
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            return ""
-        if result.returncode != 0:
-            return ""
-        return _normalize_text(result.stdout.decode("utf-8", errors="replace"))
+        for index, (crop, psm) in enumerate(_ocr_regions(path, page_number, layout, resolution)):
+            output_base = Path(temporary) / f"page-{index}"
+            try:
+                render = _run_process(
+                    [
+                        "pdftoppm", "-f", str(page_number), "-l", str(page_number),
+                        "-r", str(resolution), "-gray", *crop, "-png", "-singlefile",
+                        str(path), str(output_base),
+                    ],
+                    timeout=120,
+                )
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                return ""
+            image_path = output_base.with_suffix(".png")
+            if render.returncode != 0 or not image_path.is_file():
+                return ""
+            arguments = [executable, str(image_path), "stdout"]
+            if tessdata_dir is not None:
+                arguments.extend(["--tessdata-dir", str(tessdata_dir)])
+            arguments.extend(["-l", language, "--psm", psm])
+            try:
+                result = _run_process(arguments, timeout=120)
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                return ""
+            if result.returncode != 0:
+                return ""
+            texts.append(result.stdout.decode("utf-8", errors="replace"))
+    return _normalize_text("\n\n".join(texts))
 
 
 _STRUCTURAL_LINE = re.compile(
@@ -513,6 +584,10 @@ def refresh_corpus(
 
     project_root = Path(root).resolve()
     catalog_sources(project_root, connection)
+    layouts = {
+        name: value.get("ocr_layout") for name, value in _load_overrides(project_root).items()
+        if isinstance(value, dict) and isinstance(value.get("ocr_layout"), dict)
+    }
     documents = connection.execute(
         "SELECT id, relative_path, sha256, page_count, status FROM source_documents "
         "ORDER BY relative_path"
@@ -574,6 +649,7 @@ def refresh_corpus(
                     page_number,
                     tesseract_path=tesseract_path,
                     tessdata_dir=tessdata_dir,
+                    layout=layouts.get(relative_path) or layouts.get(Path(relative_path).name),
                 )
                 ocr_status, letter_ratio, replacement_ratio = _quality(ocr_text)
                 extraction_method = "ocr"
