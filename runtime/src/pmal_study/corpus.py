@@ -52,6 +52,7 @@ def audit_question_corpus(
     violations: list[str] = []
     columns = (
         "id",
+        "origin",
         "status",
         "relevance",
         "answer",
@@ -76,13 +77,9 @@ def audit_question_corpus(
     for question_id, row in sorted(rows.items()):
         if row["status"] != "validated":
             continue
-        required = (
-            "answer",
-            "rationale",
-            "topic_id",
-            "answer_key_source",
-            "answer_key_checked_at",
-        )
+        required = ["answer", "rationale", "topic_id"]
+        if row.get("origin") == "official":
+            required.extend(("answer_key_source", "answer_key_checked_at"))
         for field in required:
             if row[field] is None or (isinstance(row[field], str) and not row[field].strip()):
                 violations.append(f"{question_id}: campo obrigatório ausente: {field}")

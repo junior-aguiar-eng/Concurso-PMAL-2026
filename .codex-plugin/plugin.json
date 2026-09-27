@@ -1,7 +1,7 @@
 {
   "name": "treinador-pmal-oficial",
-  "version": "0.1.0+codex.20260906232045",
-  "description": "Sess\u00f5es adaptativas e revis\u00e3o persistente para Oficial da PMAL.",
+  "version": "0.3.1+codex.20260907062916",
+  "description": "Tutor adaptativo orientado por evid\u00eancias para Oficial da PMAL.",
   "author": {
     "name": "Boni Jr"
   },
@@ -9,14 +9,17 @@
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Treinador PMAL Oficial",
-    "shortDescription": "Estudo adaptativo e persistente para Oficial da PMAL.",
-    "longDescription": "Treinador local de quest\u00f5es Cebraspe, revis\u00e3o espa\u00e7ada, cobertura do edital e acompanhamento de desempenho para quatro disciplinas do concurso de Oficial da PMAL.",
+    "shortDescription": "Quest\u00f5es in\u00e9ditas audit\u00e1veis e estudo adaptativo da PMAL.",
+    "longDescription": "Tutor local orientado por evid\u00eancias que recupera o acervo, permite confirma\u00e7\u00e3o seletiva em fontes oficiais, gera e congela quest\u00f5es Cebraspe in\u00e9ditas e acompanha revis\u00e3o por conceito nas quatro disciplinas do concurso de Oficial da PMAL.",
     "developerName": "Boni Jr",
     "category": "Education",
     "capabilities": [
       "Sess\u00f5es adaptativas",
       "Quest\u00f5es Cebraspe",
+      "Gera\u00e7\u00e3o in\u00e9dita audit\u00e1vel",
+      "Acervo local pesquis\u00e1vel",
       "Revis\u00e3o espa\u00e7ada",
+      "Ambiente de estudo interativo",
       "Painel de desempenho",
       "Consulta jur\u00eddica oficial"
     ],
@@ -25,6 +28,6 @@
       "Quero treinar Direito Penal Militar por 30 minutos.",
       "Mostre meu painel de estudos da PMAL."
     ],
-    "brandColor": "#7A1F2B"
+    "brandColor": "#171717"
   }
 }

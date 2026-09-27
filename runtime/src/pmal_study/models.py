@@ -34,6 +34,77 @@ class SourceStatus(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class EvidenceRef:
+    """Referência auditável; seu texto é sempre dado não confiável."""
+
+    id: str
+    kind: str
+    source: str
+    locator: str
+    excerpt: str
+    sha256: str
+    authority: str
+    page: int | None = None
+    url: str | None = None
+    retrieved_at: str | None = None
+    untrusted_text: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class ExemplarReference:
+    question_id: str
+    statement: str
+    construction_pattern: str
+    difficulty: int
+    trap: str
+
+
+@dataclass(frozen=True, slots=True)
+class GenerationBrief:
+    job_id: str
+    session_id: str
+    discipline: Discipline
+    topic_id: str
+    concept_key: str
+    difficulty: int
+    pedagogical_reason: str
+    evidence: tuple[EvidenceRef, ...]
+    exemplars: tuple[ExemplarReference, ...]
+    update_policy: str
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedItem:
+    kind: str
+    question: PublicQuestion | None
+    generation_brief: GenerationBrief | None
+
+
+@dataclass(frozen=True, slots=True)
+class GeneratedQuestionDraft:
+    statement: str
+    answer: str
+    rationale: str
+    construction_pattern: str
+    difficulty: int
+    concept: str
+    decisive_expression: str
+    trap: str
+    distinction: str
+    evidence_links: tuple[dict[str, str], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ExemplarRecord:
+    question_id: str
+    state: str
+    approved_at: str
+    revoked_at: str | None
+    event_actor: str
+    reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class PublicQuestion:
     """Representação segura de uma questão antes da submissão da resposta."""
 
@@ -55,3 +126,8 @@ class GradingResult:
     source_page: int
     next_review_at: datetime
     error_pattern: str | None
+    analysis: str = ""
+    decisive_expression: str = ""
+    trap: str = ""
+    distinction: str = ""
+    evidence: tuple[EvidenceRef, ...] = ()

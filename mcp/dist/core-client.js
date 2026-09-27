@@ -1,143 +1,168 @@
 import { spawn } from "node:child_process";
+import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { CliEnvelopeSchema } from "./schemas.js";
 export const MAX_STDOUT_BYTES = 2 * 1024 * 1024;
-export const DEFAULT_TIMEOUT_MS = 30_000;
-/**
- * Resolve como a CLI Python será executada.
- * PMAL_PYTHON (interpretador >= 3.12) dispensa o uv: o núcleo não tem dependências externas.
- * Sem ele, usa o uv (PMAL_UV permite informar o caminho absoluto, útil no Claude Desktop,
- * que não herda o PATH do terminal).
- */
-function configured(value) {
-    const trimmed = value?.trim();
-    // Campo opcional não preenchido no Claude Desktop pode chegar como "${user_config.x}".
-    return trimmed && !trimmed.startsWith("${") ? trimmed : undefined;
-}
-export function resolveRunner(env = process.env) {
-    const python = configured(env.PMAL_PYTHON);
-    if (python)
-        return { kind: "python", executable: python };
-    return { kind: "uv", executable: configured(env.PMAL_UV) ?? "uv" };
-}
-export function resolveTimeoutMs(env = process.env) {
-    const value = Number(env.PMAL_TIMEOUT_MS);
-    return Number.isInteger(value) && value > 0 ? value : DEFAULT_TIMEOUT_MS;
+export function initializeBundledDatabase(projectRoot, dataDirectory = process.env.PMAL_DATA_DIR ?? path.join(os.homedir(), ".codex", "state", "treinador-pmal-oficial")) {
+    const seed = path.join(projectRoot, "corpus", "pmal-study-seed.db");
+    if (!existsSync(seed))
+        return undefined;
+    mkdirSync(dataDirectory, { recursive: true });
+    const database = path.join(dataDirectory, "pmal-study.db");
+    if (!existsSync(database))
+        copyFileSync(seed, database);
+    return database;
 }
 export function parsePythonOutput(stdout) {
-    if (Buffer.byteLength(stdout, "utf8") > MAX_STDOUT_BYTES) {
-        throw new Error("A CLI excedeu o limite de stdout de 2 MiB.");
-    }
-    const trimmed = stdout.trim();
+    if (Buffer.byteLength(stdout, "utf8") > MAX_STDOUT_BYTES)
+        throw new Error("O worker excedeu o limite de stdout de 2 MiB.");
     let payload;
     try {
-        payload = JSON.parse(trimmed);
+        payload = JSON.parse(stdout.trim());
     }
     catch {
-        throw new Error("A CLI violou o contrato JSON de linha única.");
+        throw new Error("O worker violou o contrato JSONL.");
     }
     const parsed = CliEnvelopeSchema.safeParse(payload);
-    if (!parsed.success) {
-        throw new Error("A CLI devolveu um envelope fora do contrato JSON.");
-    }
+    if (!parsed.success)
+        throw new Error("O worker devolveu um envelope fora do contrato JSON.");
     return parsed.data;
 }
-export const executeProcess = (executable, args, options) => new Promise((resolve, reject) => {
-    const child = spawn(executable, args, {
-        cwd: options.cwd,
-        shell: false,
-        windowsHide: true,
-        stdio: ["ignore", "pipe", "pipe"],
-        env: { ...process.env, ...options.env, PYTHONUTF8: "1" },
-    });
-    const stdout = [];
-    const stderr = [];
-    let stdoutBytes = 0;
-    let settled = false;
-    const finishError = (error) => {
-        if (!settled) {
-            settled = true;
-            clearTimeout(timer);
-            child.kill();
-            reject(error);
-        }
-    };
-    const timer = setTimeout(() => finishError(new Error(`A CLI Python excedeu ${Math.round(options.timeoutMs / 1000)} segundos.`)), options.timeoutMs);
-    child.stdout.on("data", (chunk) => {
-        stdoutBytes += chunk.length;
-        if (stdoutBytes > options.maxStdoutBytes) {
-            finishError(new Error("A CLI excedeu o limite de stdout de 2 MiB."));
-            return;
-        }
-        stdout.push(chunk);
-    });
-    child.stderr.on("data", (chunk) => stderr.push(chunk));
-    child.on("error", (error) => finishError(error.code === "ENOENT"
-        ? new Error(`Executável "${executable}" não encontrado. Configure PMAL_PYTHON (Python >= 3.12) ou PMAL_UV com caminho absoluto.`)
-        : error));
-    child.on("close", (code) => {
-        if (settled)
-            return;
-        settled = true;
-        clearTimeout(timer);
-        resolve({
-            exitCode: code ?? -1,
-            stdout: Buffer.concat(stdout).toString("utf8"),
-            stderr: Buffer.concat(stderr).toString("utf8"),
-        });
-    });
-});
 export class CoreClient {
-    executor;
-    databasePath;
+    spawnWorker;
+    defaultTimeoutMs;
     projectRoot;
-    runner;
-    timeoutMs;
-    constructor(projectRoot, executor = executeProcess, databasePath, options = {}) {
-        this.executor = executor;
-        this.databasePath = databasePath;
-        this.runner = options.runner ?? resolveRunner();
-        this.timeoutMs = options.timeoutMs ?? resolveTimeoutMs();
-        if (!path.isAbsolute(projectRoot)) {
+    databasePath;
+    child;
+    ready;
+    readyResolve;
+    readyReject;
+    buffer = "";
+    pending = new Map();
+    sequence = 0;
+    queue = Promise.resolve();
+    closed = false;
+    constructor(projectRoot, spawnWorker = (executable, args, options) => spawn(executable, args, options), databasePath, dataDirectory, defaultTimeoutMs = 30_000) {
+        this.spawnWorker = spawnWorker;
+        this.defaultTimeoutMs = defaultTimeoutMs;
+        if (!path.isAbsolute(projectRoot))
             throw new Error("projectRoot deve ser absoluto.");
-        }
         this.projectRoot = path.resolve(projectRoot);
+        this.databasePath = databasePath ?? initializeBundledDatabase(this.projectRoot, dataDirectory);
+    }
+    start() {
+        if (this.ready)
+            return this.ready;
+        if (this.closed)
+            return Promise.reject(new Error("O worker já foi encerrado."));
+        const args = ["run", "--quiet", "--project", this.projectRoot, "python", "-m", "pmal_study.worker", "--project-root", this.projectRoot];
+        if (this.databasePath)
+            args.push("--database", this.databasePath);
+        this.ready = new Promise((resolve, reject) => { this.readyResolve = resolve; this.readyReject = reject; });
+        const child = this.spawnWorker("uv", args, { cwd: this.projectRoot, shell: false, windowsHide: true, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, PYTHONUTF8: "1" } });
+        this.child = child;
+        child.stdout.on("data", (chunk) => this.consume(chunk.toString("utf8")));
+        child.on("error", (error) => { if (this.child === child)
+            this.fail(error); });
+        child.on("close", () => { if (this.child === child)
+            this.fail(new Error("O worker Python foi encerrado.")); });
+        return this.ready;
+    }
+    consume(chunk) {
+        this.buffer += chunk;
+        if (Buffer.byteLength(this.buffer, "utf8") > MAX_STDOUT_BYTES) {
+            this.child?.kill();
+            this.fail(new Error("O worker excedeu o limite de stdout de 2 MiB."));
+            return;
+        }
+        for (;;) {
+            const newline = this.buffer.indexOf("\n");
+            if (newline < 0)
+                return;
+            const line = this.buffer.slice(0, newline);
+            this.buffer = this.buffer.slice(newline + 1);
+            let value;
+            try {
+                value = JSON.parse(line);
+            }
+            catch {
+                this.child?.kill();
+                this.fail(new Error("O worker violou o contrato JSONL."));
+                return;
+            }
+            if (value?.type === "ready") {
+                this.readyResolve?.();
+                continue;
+            }
+            const id = String(value?.id ?? "");
+            const pending = this.pending.get(id);
+            if (!pending)
+                continue;
+            clearTimeout(pending.timer);
+            this.pending.delete(id);
+            const parsed = CliEnvelopeSchema.safeParse({ ok: value.ok, ...(value.ok ? { data: value.data } : { error: value.error }) });
+            if (!parsed.success)
+                pending.reject(new Error("O worker devolveu um envelope fora do contrato JSON."));
+            else
+                pending.resolve(parsed.data);
+        }
+    }
+    fail(error) {
+        this.readyReject?.(error);
+        this.ready = undefined;
+        this.readyResolve = undefined;
+        this.readyReject = undefined;
+        this.child = undefined;
+        this.buffer = "";
+        for (const pending of this.pending.values()) {
+            clearTimeout(pending.timer);
+            pending.reject(error);
+        }
+        this.pending.clear();
+    }
+    async callOnce(command, input) {
+        await this.start();
+        const child = this.child;
+        if (!child)
+            throw new Error("O worker Python não iniciou.");
+        const id = String(++this.sequence);
+        const timeoutMs = command === "refresh-corpus" ? 600_000 : this.defaultTimeoutMs;
+        return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => { this.pending.delete(id); child.kill(); reject(new Error("O worker Python excedeu o tempo limite.")); }, timeoutMs);
+            this.pending.set(id, { resolve, reject, timer });
+            child.stdin.write(JSON.stringify({ id, command, payload: input }) + "\n", (error) => { if (error) {
+                clearTimeout(timer);
+                this.pending.delete(id);
+                reject(error);
+            } });
+        });
     }
     async call(command, input) {
-        const cliArgs = [
-            "-m",
-            "pmal_study.cli",
-            command,
-            "--project-root",
-            this.projectRoot,
-            "--input-json",
-            JSON.stringify(input),
-        ];
-        if (this.databasePath)
-            cliArgs.push("--database", this.databasePath);
-        const args = this.runner.kind === "python"
-            ? cliArgs
-            : ["run", "--quiet", "--project", this.projectRoot, "python", ...cliArgs];
-        const env = this.runner.kind === "python"
-            ? { PYTHONPATH: path.join(this.projectRoot, "src") }
-            : undefined;
-        const output = await this.executor(this.runner.executable, args, {
-            cwd: this.projectRoot,
-            timeoutMs: this.timeoutMs,
-            maxStdoutBytes: MAX_STDOUT_BYTES,
-            ...(env ? { env } : {}),
-        });
-        let envelope;
+        const execute = () => {
+            const run = this.queue.then(() => this.callOnce(command, input));
+            this.queue = run.catch(() => undefined);
+            return run;
+        };
         try {
-            envelope = parsePythonOutput(output.stdout);
+            return await execute();
         }
         catch (error) {
-            const detail = output.stderr.trim().split(/\r?\n/).slice(-3).join(" | ");
-            throw detail ? new Error(`${error.message} stderr: ${detail}`) : error;
+            const readOnly = ["dashboard", "review-queue", "worker-info"].includes(command);
+            const idempotentWrite = ["operation_id", "attempt_id", "exchange_id", "job_id", "request_id"].some((key) => typeof input[key] === "string" && input[key]);
+            if (!readOnly && !idempotentWrite)
+                throw error;
+            this.child?.kill();
+            this.fail(error instanceof Error ? error : new Error(String(error)));
+            return execute();
         }
-        if (output.exitCode !== 0 && envelope.ok) {
-            throw new Error("A CLI encerrou com falha apesar de declarar sucesso.");
-        }
-        return envelope;
+    }
+    async close() {
+        this.closed = true;
+        const child = this.child;
+        if (!child)
+            return;
+        child.stdin.end();
+        await new Promise((resolve) => { const timer = setTimeout(() => { child.kill(); resolve(); }, 2_000); child.once("close", () => { clearTimeout(timer); resolve(); }); });
     }
 }

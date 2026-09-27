@@ -36,6 +36,9 @@ def export_canvas_summary(
     )
     due = [item for item in review_queue if item["due"]]
     coverage = dashboard["syllabus"]
+    corpus = dashboard["corpus"]
+    applied = dashboard["questions_applied"]
+    exemplars = dashboard["exemplars"]
     next_session = (
         f"Revisão dirigida das {len(due)} questões vencidas."
         if due
@@ -75,6 +78,16 @@ def export_canvas_summary(
         "## Cobertura do edital\n\n"
         f"Total: {int(coverage['topics_covered'])}/{int(coverage['topics_total'])} tópicos.\n\n"
         f"{coverage_lines}\n\n"
+        "## Acervo e evidências\n\n"
+        f"- Documentos: {int(corpus['documents'])}\n"
+        f"- Páginas rastreadas: {int(corpus['total_pages'])}\n"
+        f"- Páginas por OCR: {int(corpus['ocr_pages'])}\n"
+        f"- Páginas em quarentena: {int(corpus['quarantined_pages'])}\n"
+        f"- Fontes desatualizadas ou inválidas: {int(corpus['stale_sources'])}\n\n"
+        "## Questões aplicadas e exemplares\n\n"
+        f"- Oficiais aplicadas: {int(applied['official'])}\n"
+        f"- Inéditas aplicadas: {int(applied['generated'])}\n"
+        f"- Exemplares aprovados: {int(exemplars['approved'])}\n\n"
         "## Próxima sessão\n\n"
         f"{next_session}\n\n"
         "> Este Markdown é uma visualização derivada. O SQLite local permanece a fonte autoritativa; edições no Canvas não alteram o histórico de estudo.\n"
