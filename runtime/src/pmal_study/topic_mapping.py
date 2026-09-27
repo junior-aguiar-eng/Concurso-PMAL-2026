@@ -96,7 +96,7 @@ COMPILED_CODES: dict[str, str] = {
 
 # Número da lei (sem pontos) no nome do arquivo → tópico de Legislação PMAL.
 LAW_TOPICS: dict[str, str] = {
-    "5346": "leg.1", "37042": "leg.2", "7716": "leg.3", "8072": "leg.4", "8930": "leg.4",
+    "5346": "leg.1", "9381": "leg.1", "37042": "leg.2", "7716": "leg.3", "8072": "leg.4", "8930": "leg.4",
     "12850": "leg.5", "9455": "leg.6", "9605": "leg.7", "10826": "leg.8", "11343": "leg.9",
     "11340": "leg.10", "9503": "leg.11", "8069": "leg.12", "13869": "leg.13", "7960": "leg.14",
     "9099": "leg.15", "10259": "leg.16", "14751": "leg.17",
