@@ -597,6 +597,10 @@ def refresh_corpus(
     chunks_created = 0
 
     for document_id, relative_path, digest, page_count, catalog_status in documents:
+        if not (project_root / relative_path).is_file():
+            # PDF ausente desta pasta: preserva o que já está indexado (ou a referência).
+            unchanged += 1
+            continue
         version_id = _version_id(document_id, digest)
         known_versions = connection.execute(
             "SELECT id, sha256 FROM source_document_versions WHERE document_id = ?",
