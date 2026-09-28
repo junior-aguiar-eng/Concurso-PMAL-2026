@@ -1,0 +1,33 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "treinador-pmal-chatgpt",
+  "version": "1.0.0",
+  "description": "Tutor adaptativo para Oficial da PMAL 2026: questões Cebraspe oficiais e inéditas a partir das normas do acervo, correção fundamentada, revisão espaçada e consulta à legislação.",
+  "author": {
+    "name": "Boni Jr"
+  },
+  "keywords": ["pmal", "concurso", "cebraspe", "direito-penal-militar", "estudo"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Treinador PMAL Oficial",
+        "shortDescription": "Questões Cebraspe e estudo adaptativo para Oficial da PMAL.",
+        "longDescription": "Motor local embutido que conduz sessões, gera e congela questões Cebraspe inéditas com base nas normas do acervo, corrige com fundamento e evidência, agenda revisões por conceito e permite consulta literal à legislação nas quatro disciplinas do concurso de Oficial da PMAL. O progresso é salvo em arquivo para retomar em outra conversa.",
+        "developerName": "Boni Jr",
+        "category": "Education",
+        "capabilities": [
+          "Sessões adaptativas",
+          "Questões Cebraspe inéditas",
+          "Revisão espaçada",
+          "Consulta à legislação",
+          "Painel de desempenho"
+        ],
+        "defaultPrompt": [
+          "Inicie uma sessão de 30 minutos conforme minhas revisões pendentes.",
+          "Quero treinar Direito Penal Militar com questões inéditas.",
+          "O que diz a lei sobre prisão temporária no acervo?"
+        ]
+      }
+    }
+  }
+}
