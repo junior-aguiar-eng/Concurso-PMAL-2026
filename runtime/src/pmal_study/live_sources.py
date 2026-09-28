@@ -63,7 +63,8 @@ def _source_kind(url: str) -> str:
         "stj": "stj.jus.br",
         "cebraspe": "cebraspe.org.br",
         "pmal": "pm.al.gov.br",
-        "alagoas_governo": "alagoas.al.gov.br",
+        # Abrange secretarias e autarquias estaduais (ex.: itec.al.gov.br) e municípios.
+        "alagoas_governo": "al.gov.br",
         "aleal": "al.al.leg.br",
         "tjal": "tjal.jus.br",
         "ibge": "ibge.gov.br",

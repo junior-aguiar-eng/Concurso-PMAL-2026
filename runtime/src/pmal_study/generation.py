@@ -12,6 +12,7 @@ from typing import Any, Callable
 
 from pmal_study.db import transaction
 from pmal_study.evidence import search_evidence
+from pmal_study.models import Discipline
 from pmal_study.models import (
     Discipline,
     EvidenceRef,
@@ -215,9 +216,12 @@ class GenerationService:
             raise GenerationError("no_evidence", "Não há evidência suficiente no escopo da sessão.")
         difficulty = 4 if target[6] is None else max(2, min(5, round(3 + float(target[6]) * 2)))
         reason = "conceito ainda não avaliado" if target[6] is None else "reforço orientado pelo domínio conceitual"
+        # Conteúdo histórico-geográfico de Alagoas não sofre alteração normativa;
+        # a confirmação ao vivo existe para capturar atualização legislativa.
         update_policy = (
             "local_sufficient"
-            if any(item.authority in {"official_legislation", "local_official_copy", "official_court"} for item in evidence)
+            if target[1] == Discipline.CONHECIMENTOS_ALAGOAS.value
+            or any(item.authority in {"official_legislation", "local_official_copy", "official_court"} for item in evidence)
             else "selective_live_confirmation"
         )
         job_id = str(uuid.uuid4())
