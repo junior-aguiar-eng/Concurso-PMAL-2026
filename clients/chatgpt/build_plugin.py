@@ -2,12 +2,17 @@
 """Empacota o plugin do ChatGPT (plugin.json + skills/) em dist/treinador-pmal-chatgpt-<versão>.zip.
 
 O motor (runtime/src), o edital (runtime/config) e as questões revisadas são copiados do
-repositório. O acervo de leis vem do banco-semente pessoal, que não é versionado:
+repositório. O acervo de leis vem de uma pasta de PDFs oficiais e/ou do banco-semente pessoal:
 
+  python clients/chatgpt/build_plugin.py --leis "C:/Users/.../Desktop/PMAL"
   python clients/chatgpt/build_plugin.py --seed C:/caminho/pmal-study-seed.db
 
-Por padrão, o banco passa por scripts/build_public_seed.py: mantém o texto integral das
-normas oficiais, do edital e das provas e remove o texto de material didático de terceiros.
+--leis indexa cada PDF da pasta (sem subpastas) como cópia oficial de norma; requer o pacote
+pypdf, instalado automaticamente se ausente. O tópico do edital decorre do número da lei no
+nome do arquivo (ex.: L9099.pdf); CPM e CPPM devem conter DEL1001/DEL1002 no nome.
+
+O banco-semente passa por scripts/build_public_seed.py: mantém o texto integral das normas
+oficiais, do edital e das provas e remove o texto de material didático de terceiros.
 Use --manter-didatico para embutir o banco completo (uso estritamente pessoal).
 """
 
@@ -19,6 +24,7 @@ import json
 import os
 import shutil
 import sqlite3
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -37,6 +43,90 @@ def _public_seed(source: Path, target: Path) -> dict[str, int]:
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module.build(source, target)
+
+
+# Nomes sem número de lei que o mapeamento de tópicos não reconhece.
+_ALIASES = (
+    (("rdpmal",), "D37042"),
+    (("regulamento", "disciplinar"), "D37042"),
+    (("estatuto", "pmal"), "L5346"),
+    (("estatuto", "policiais", "militares"), "L5346"),
+)
+
+
+def _staged_name(filename: str) -> str:
+    sys.path.insert(0, str(REPO / "runtime" / "src"))
+    from pmal_study.topic_mapping import compiled_code_discipline, law_topic, normalize  # noqa: PLC0415
+
+    if compiled_code_discipline(filename) or law_topic(filename):
+        return filename
+    folded = normalize(filename)
+    for words, prefix in _ALIASES:
+        if all(word in folded for word in words):
+            return f"{prefix} {filename}"
+    return filename
+
+
+def _pdf_reader():
+    try:
+        from pypdf import PdfReader  # noqa: PLC0415
+    except ImportError:
+        print("Instalando pypdf (leitura de PDF)...")
+        subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "pypdf"], check=True)
+        from pypdf import PdfReader  # noqa: PLC0415
+    return PdfReader
+
+
+def _index_laws(folder: Path, database: Path) -> dict[str, object]:
+    """Indexa PDFs de normas com o próprio núcleo, trocando poppler/tesseract por pypdf."""
+
+    PdfReader = _pdf_reader()
+    sys.path.insert(0, str(REPO / "runtime" / "src"))
+    from pmal_study import sources  # noqa: PLC0415
+    from pmal_study.bootstrap import bootstrap_bundled_runtime  # noqa: PLC0415
+    from pmal_study.db import open_database  # noqa: PLC0415
+    from pmal_study.topic_mapping import compiled_code_discipline, law_topic  # noqa: PLC0415
+
+    def page_count(path: Path) -> tuple[int, str | None]:
+        try:
+            return len(PdfReader(str(path)).pages), None
+        except Exception as error:  # noqa: BLE001 - PDF corrompido vira diagnóstico
+            return 0, f"pypdf: {error}"
+
+    def all_pages(path: Path, count: int) -> list[str]:
+        try:
+            pages = [sources._normalize_text(page.extract_text() or "") for page in PdfReader(str(path)).pages]
+        except Exception:  # noqa: BLE001
+            pages = []
+        return (pages + [""] * count)[:count]
+
+    sources._read_page_count = page_count
+    sources._extract_all_text_pages = all_pages
+    sources._ocr_page = lambda *args, **kwargs: ""
+
+    pdfs = sorted(path for path in folder.iterdir() if path.is_file() and path.suffix.casefold() == ".pdf")
+    if not pdfs:
+        raise SystemExit(f"Nenhum PDF encontrado em {folder}")
+    unmapped = []
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        official = root / "Legislacao Oficial"
+        official.mkdir()
+        for pdf in pdfs:
+            name = _staged_name(pdf.name)
+            if not (compiled_code_discipline(name) or law_topic(name)):
+                unmapped.append(pdf.name)
+            shutil.copyfile(pdf, official / name)
+        connection = open_database(database)
+        try:
+            bootstrap_bundled_runtime(REPO / "runtime", connection)
+            report = sources.refresh_corpus(root, connection)
+        finally:
+            connection.close()
+    print(f"PDFs indexados: {len(pdfs)}")
+    if unmapped:
+        print("AVISO: sem tópico do edital pelo nome (renomeie com o número da lei):", ", ".join(unmapped))
+    return {"relatorio": getattr(report, "__dict__", str(report))}
 
 
 def _seed_report(path: Path) -> dict[str, object]:
@@ -69,7 +159,7 @@ def _files(root: Path):
             yield path
 
 
-def build(seed: Path | None, keep_didactic: bool, output: Path) -> Path:
+def build(seed: Path | None, laws: Path | None, keep_didactic: bool, output: Path) -> Path:
     manifest = json.loads((HERE / "plugin.json").read_text(encoding="utf-8"))
     version = manifest["version"]
     with tempfile.TemporaryDirectory() as temporary:
@@ -83,16 +173,19 @@ def build(seed: Path | None, keep_didactic: bool, output: Path) -> Path:
         shutil.copytree(REPO / "runtime" / "corpus" / "questions", runtime / "corpus" / "questions")
         shutil.copyfile(HERE / "plugin.json", stage / "plugin.json")
 
+        target = runtime / "corpus" / "pmal-study-seed.db"
         if seed:
-            target = runtime / "corpus" / "pmal-study-seed.db"
             if keep_didactic:
                 shutil.copyfile(seed, target)
                 print("Banco-semente completo embutido (inclui material didático).")
             else:
                 print("Banco-semente filtrado:", _public_seed(seed, target))
+        if laws:
+            _index_laws(laws, target)
+        if target.exists():
             print("Cobertura normativa:", json.dumps(_seed_report(target), ensure_ascii=False))
         else:
-            print("AVISO: sem banco-semente. O plugin terá só as questões revisadas; "
+            print("AVISO: sem banco-semente nem pasta de leis. O plugin terá só as questões revisadas; "
                   "não haverá leis nem geração de questões inéditas.")
 
         output.mkdir(parents=True, exist_ok=True)
@@ -115,6 +208,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--seed", type=Path, default=os.environ.get("PMAL_SEED_DB") or None,
                         help="banco-semente pessoal (padrão: PMAL_SEED_DB ou runtime/corpus/pmal-study-seed.db)")
+    parser.add_argument("--leis", type=Path, help="pasta com os PDFs oficiais das normas")
     parser.add_argument("--manter-didatico", action="store_true",
                         help="embute o banco completo, sem remover material de terceiros")
     parser.add_argument("--output", type=Path, default=HERE / "dist")
@@ -125,7 +219,10 @@ def main() -> int:
     if seed is not None and not Path(seed).is_file():
         print(f"Banco-semente não encontrado: {seed}", file=sys.stderr)
         return 1
-    build(Path(seed) if seed else None, args.manter_didatico, args.output)
+    if args.leis is not None and not args.leis.is_dir():
+        print(f"Pasta de leis não encontrada: {args.leis}", file=sys.stderr)
+        return 1
+    build(Path(seed) if seed else None, args.leis, args.manter_didatico, args.output)
     return 0
 
 

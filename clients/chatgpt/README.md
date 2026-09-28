@@ -17,12 +17,13 @@ skills/treinador-pmal-chatgpt/
 ## Gerar o .zip
 
 ```bash
-python clients/chatgpt/build_plugin.py --seed CAMINHO/pmal-study-seed.db
+python clients/chatgpt/build_plugin.py --leis "C:/Users/.../Desktop/PMAL" --seed "C:/Users/.../Desktop/PMAL/pmal-study.db"
 ```
 
-- Sem `--seed` (nem `PMAL_SEED_DB`), o plugin traz só as questões revisadas: sem leis e sem questões inéditas.
-- Por padrão, o banco passa por `scripts/build_public_seed.py`: mantém normas oficiais, edital e provas e remove o texto de apostilas de terceiros. `--manter-didatico` embute tudo (uso pessoal).
-- O build informa os tópicos do edital sem norma indexada; limite de 100 MB.
+- `--leis`: pasta com os PDFs oficiais das normas (sem subpastas). Instala `pypdf` automaticamente. O tópico do edital sai do número da lei no nome (`L9099.pdf`, `Lei nº 11.343.pdf`); `ESTATUTO PMAL` e `RDPMAL` são reconhecidos; CPM e CPPM precisam de `DEL1001`/`DEL1002` no nome.
+- `--seed`: banco local (`pmal-study.db` ou `pmal-study-seed.db`). Passa por `scripts/build_public_seed.py` (mantém normas, edital e provas; remove texto de apostilas). `--manter-didatico` embute tudo (uso pessoal). O histórico de tentativas do banco vai junto.
+- Pode usar um, outro ou ambos. Sem nenhum, o plugin traz só as questões revisadas.
+- O build lista PDFs sem tópico reconhecido e tópicos do edital sem norma; limite de 100 MB.
 - Saída: `clients/chatgpt/dist/treinador-pmal-chatgpt-<versão>.zip`. Para atualizar, suba a `version` em `plugin.json` e use "Enviar nova versão".
 
 ## Uso
