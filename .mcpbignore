@@ -17,3 +17,4 @@ runtime/tmp/
 tmp/
 mcp/package-lock.json
 docs/
+clients/
