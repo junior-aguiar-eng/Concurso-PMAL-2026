@@ -118,3 +118,22 @@ def test_excecoes_do_runtime_valem_para_qualquer_pasta_de_pdfs():
     with tempfile.TemporaryDirectory() as folder:
         overrides = _load_overrides(Path(folder))
     assert overrides["596_PMAL_001_MATRIZ.pdf"]["ocr_layout"]["columns"] == 2
+
+
+def test_atualizar_acervo_preserva_documentos_sem_pdf_na_pasta(db_connection):
+    import tempfile
+    from pathlib import Path
+
+    from pmal_study.sources import refresh_corpus
+
+    before = db_connection.execute(
+        "SELECT document_id, page_number, text, page_state FROM source_pages ORDER BY 1, 2"
+    ).fetchall()
+    assert before
+    with tempfile.TemporaryDirectory() as folder:
+        report = refresh_corpus(Path(folder), db_connection)
+    after = db_connection.execute(
+        "SELECT document_id, page_number, text, page_state FROM source_pages ORDER BY 1, 2"
+    ).fetchall()
+    assert report.documents_processed == 0
+    assert after == before

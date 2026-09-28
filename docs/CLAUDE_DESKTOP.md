@@ -39,6 +39,17 @@ A classificação usa o caminho do arquivo:
 Material didático exige confirmação em fonte oficial antes de fundamentar questão; cópia oficial dispensa.
 Atualizar o acervo com uma pasta que não contém os PDFs antigos não apaga o que já foi indexado.
 
+## Versão compartilhável
+
+O banco-semente pessoal contém texto de materiais de terceiros e **não deve ser distribuído**. Para compartilhar, gere um banco só com fontes públicas (normas oficiais, edital e provas) e empacote com ele:
+
+```bash
+python3 scripts/build_public_seed.py pmal-study-seed.db pmal-study-seed-publico.db
+PMAL_SEED_DB=pmal-study-seed-publico.db ./scripts/build-desktop-extension.sh
+```
+
+Materiais didáticos ficam apenas como referência de página (sem texto). Quem tiver o PDF original o reindexa em “Atualizar acervo”.
+
 ## Configuração manual (alternativa)
 
 `claude_desktop_config.json` (Windows: `%APPDATA%\Claude\`; macOS: `~/Library/Application Support/Claude/`):
