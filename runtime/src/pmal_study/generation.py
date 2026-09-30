@@ -121,7 +121,7 @@ class GenerationService:
         ).fetchall()
         values = [
             EvidenceRef(
-                id=row[0], kind="local", source=row[1], page=row[2], locator=row[3],
+                id=row[0], kind="local", source=row[1], page=row[2], locator=row[3] or f"p. {row[2]}",
                 excerpt=row[4][:2400], sha256=row[5], authority=row[6],
             )
             for row in local

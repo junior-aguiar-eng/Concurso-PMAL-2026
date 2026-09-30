@@ -11,7 +11,7 @@ from hashlib import sha256
 from pathlib import Path
 
 from pmal_study.db import transaction
-from pmal_study.sources import _infer_discipline
+from pmal_study.sources import _infer_discipline, enrich_chunk_metadata
 
 
 @dataclass(frozen=True, slots=True)
@@ -372,6 +372,9 @@ def _import_doctrine(
                 """,
                 (chunk_id, version_id, document_id, locator, chunk_text, chunk_hash, discipline),
             )
+    # Sem tópico do edital o trecho nunca é elegível para geração; classifica já na importação,
+    # como faz "Atualizar acervo", em vez de esperar a próxima atualização.
+    enrich_chunk_metadata(connection)
     return MarkdownImportSummary(doctrine_documents=1, doctrine_chunks=len(units))
 
 

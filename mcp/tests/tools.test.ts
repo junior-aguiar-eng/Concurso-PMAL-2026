@@ -181,9 +181,7 @@ describe("catálogo MCP", () => {
     const result = await next?.handler({ session_id: "ausente" });
 
     expect(result?.isError).toBe(true);
-    expect(result?.structuredContent).toEqual({
-      ok: false,
-      error: { code: "session_not_found", message: "Sessão não localizada." },
-    });
+    expect(result?.content[0]).toEqual({ type: "text", text: "session_not_found: Sessão não localizada." });
+    expect(result).not.toHaveProperty("structuredContent");
   });
 });

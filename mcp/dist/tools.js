@@ -1,11 +1,15 @@
 import { CanvasExportSchema, CorpusRefreshSchema, DashboardSchema, DisciplineSchema, EndSessionSchema, EvidenceSearchSchema, ExemplarRecordSchema, GeneratedDraftSchema, GradingResultSchema, HostJobContextSchema, HostJobReferenceSchema, HostJobStatusSchema, LiveEvidenceSchema, PreparedNextItemSchema, PrivatePreparedNextItemSchema, PublicQuestionSchema, ReviewQueueSchema, SessionModeSchema, SessionSchema, SourceCheckSchema, StudyWorkspaceSchema, SubmitAndPrepareSchema, } from "./schemas.js";
 import { z as schema } from "zod";
 import { DASHBOARD_URI, STUDY_URI } from "./ui-resource.js";
+/**
+ * Erro de domínio sem structuredContent: clientes MCP validam structuredContent contra o
+ * outputSchema mesmo quando isError é verdadeiro, e um envelope de erro nunca corresponde
+ * ao schema de sucesso — o cliente descartaria a mensagem e acusaria -32602.
+ */
 function errorResult(code, message) {
     return {
         isError: true,
         content: [{ type: "text", text: `${code}: ${message}` }],
-        structuredContent: { ok: false, error: { code, message } },
     };
 }
 function dataResult(data, output, summarize, options = {}) {
