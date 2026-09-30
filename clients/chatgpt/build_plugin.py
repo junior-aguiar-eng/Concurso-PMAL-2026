@@ -19,6 +19,7 @@ Use --manter-didatico para embutir o banco completo (uso estritamente pessoal).
 from __future__ import annotations
 
 import argparse
+import gzip
 import importlib.util
 import json
 import os
@@ -152,6 +153,16 @@ def _seed_report(path: Path) -> dict[str, object]:
     return {"trechos_normativos": official, "tentativas_embutidas": attempts, "topicos_sem_norma": empty}
 
 
+TEXT_SUFFIXES = {".md", ".json", ".jsonl", ".yaml", ".yml", ".py", ".txt", ".toml"}
+
+
+def _normalized(path: Path) -> bytes:
+    """Converte CRLF em LF: o Git no Windows pode gravar os textos com CRLF."""
+
+    data = path.read_bytes()
+    return data.replace(b"\r\n", b"\n") if path.suffix.casefold() in TEXT_SUFFIXES else data
+
+
 def _files(root: Path):
     for path in sorted(root.rglob("*")):
         if path.is_symlink():
@@ -160,7 +171,29 @@ def _files(root: Path):
             yield path
 
 
-def build(seed: Path | None, laws: Path | None, keep_didactic: bool, output: Path) -> Path:
+def _split_seed(database: Path, part_mb: float) -> list[Path]:
+    """Compacta o banco e o divide em partes pequenas; scripts/pmal.py remonta no init.
+
+    O ChatGPT recusa pacotes com arquivos grandes dentro da skill, mesmo abaixo de 100 MB.
+    As partes usam a extensão .db, já aceita pelo uploader.
+    """
+
+    with closing(sqlite3.connect(database)) as connection:
+        connection.execute("VACUUM")
+    payload = gzip.compress(database.read_bytes(), compresslevel=9)
+    database.unlink()
+    folder = database.parent / "acervo"
+    folder.mkdir()
+    size = int(part_mb * 1024 * 1024)
+    parts = []
+    for index in range(0, len(payload), size):
+        part = folder / f"acervo-{index // size + 1:03d}.db"
+        part.write_bytes(payload[index:index + size])
+        parts.append(part)
+    return parts
+
+
+def build(seed: Path | None, laws: Path | None, keep_didactic: bool, output: Path, part_mb: float = 4) -> Path:
     manifest = json.loads((HERE / "plugin.json").read_text(encoding="utf-8"))
     version = manifest["version"]
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
@@ -185,6 +218,8 @@ def build(seed: Path | None, laws: Path | None, keep_didactic: bool, output: Pat
             _index_laws(laws, target)
         if target.exists():
             print("Cobertura normativa:", json.dumps(_seed_report(target), ensure_ascii=False))
+            parts = _split_seed(target, part_mb)
+            print(f"Acervo compactado em {len(parts)} partes de até {part_mb} MB.")
         else:
             print("AVISO: sem banco-semente nem pasta de leis. O plugin terá só as questões revisadas; "
                   "não haverá leis nem geração de questões inéditas.")
@@ -196,7 +231,7 @@ def build(seed: Path | None, laws: Path | None, keep_didactic: bool, output: Pat
                 info = ZipInfo(path.relative_to(stage).as_posix(), date_time=(2026, 1, 1, 0, 0, 0))
                 info.compress_type = ZIP_DEFLATED
                 info.external_attr = 0o100644 << 16
-                bundle.writestr(info, path.read_bytes())
+                bundle.writestr(info, _normalized(path))
     size = archive.stat().st_size
     if size > LIMIT_BYTES:
         archive.unlink()
@@ -212,6 +247,7 @@ def main() -> int:
     parser.add_argument("--leis", type=Path, help="pasta com os PDFs oficiais das normas")
     parser.add_argument("--manter-didatico", action="store_true",
                         help="embute o banco completo, sem remover material de terceiros")
+    parser.add_argument("--parte-mb", type=float, default=4, help="tamanho máximo de cada parte do acervo (MB)")
     parser.add_argument("--output", type=Path, default=HERE / "dist")
     args = parser.parse_args()
     seed = args.seed
@@ -223,7 +259,7 @@ def main() -> int:
     if args.leis is not None and not args.leis.is_dir():
         print(f"Pasta de leis não encontrada: {args.leis}", file=sys.stderr)
         return 1
-    build(Path(seed) if seed else None, args.leis, args.manter_didatico, args.output)
+    build(Path(seed) if seed else None, args.leis, args.manter_didatico, args.output, args.parte_mb)
     return 0
 
 
