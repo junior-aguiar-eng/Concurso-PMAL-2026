@@ -31,7 +31,7 @@ import { DASHBOARD_URI, STUDY_URI } from "./ui-resource.js";
 type InputShape = Record<string, z.ZodType>;
 type ToolResult = {
   content: Array<{ type: "text"; text: string }>;
-  structuredContent: Record<string, unknown>;
+  structuredContent?: Record<string, unknown>;
   isError?: boolean;
 };
 
@@ -53,11 +53,15 @@ export interface ToolCatalogEntry {
   handler(input: Record<string, unknown>): Promise<ToolResult>;
 }
 
+/**
+ * Erro de domínio sem structuredContent: clientes MCP validam structuredContent contra o
+ * outputSchema mesmo quando isError é verdadeiro, e um envelope de erro nunca corresponde
+ * ao schema de sucesso — o cliente descartaria a mensagem e acusaria -32602.
+ */
 function errorResult(code: string, message: string): ToolResult {
   return {
     isError: true,
     content: [{ type: "text", text: `${code}: ${message}` }],
-    structuredContent: { ok: false, error: { code, message } },
   };
 }
 
