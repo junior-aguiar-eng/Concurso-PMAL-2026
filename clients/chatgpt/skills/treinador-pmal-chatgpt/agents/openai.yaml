@@ -1,8 +1,8 @@
 interface:
-  display_name: "Treinador PMAL Oficial"
-  short_description: "Estudo adaptativo para Oficial da PMAL"
-  default_prompt: "Use $treinador-pmal-chatgpt para iniciar uma sessão de estudo da PMAL."
+  display_name: 'Treinador PMAL Oficial'
+  short_description: Estudo adaptativo para Oficial da PMAL
+  default_prompt: Use @treinador-pmal-chatgpt para iniciar uma sessão de estudo da PMAL.
 policy:
-  products:
-  - chatgpt
   allow_implicit_invocation: true
+  products:
+  - CHAT
