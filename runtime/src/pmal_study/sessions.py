@@ -834,11 +834,26 @@ class StudyService:
             """,
             (question_id,),
         ).fetchall()
+        # Evidência ao vivo aponta para o snapshot web; o documento local da questão não é URL.
+        live = {
+            row[0]: (row[1], row[2])
+            for row in self.connection.execute(
+                "SELECT id, final_url, retrieved_at FROM live_source_snapshots WHERE id IN "
+                "(SELECT live_snapshot_id FROM question_evidence "
+                " WHERE question_id = ? AND evidence_kind = 'live')",
+                (question_id,),
+            )
+        }
         evidence = tuple(
             EvidenceRef(
-                id=row[1], kind=row[0], source=(source[0] if source else "fonte registrada"),
+                id=row[1], kind=row[0],
+                source=(
+                    live[row[1]][0] if row[0] == "live" and row[1] in live
+                    else source[0] if source else "fonte registrada"
+                ),
                 page=(source[1] if source and row[0] == "local" else None),
-                url=(source[0] if source and row[0] == "live" else None),
+                url=(live[row[1]][0] if row[0] == "live" and row[1] in live else None),
+                retrieved_at=(live[row[1]][1] if row[0] == "live" and row[1] in live else None),
                 locator=row[2], excerpt=row[3], sha256=row[4], authority=row[5],
             )
             for row in evidence_rows
