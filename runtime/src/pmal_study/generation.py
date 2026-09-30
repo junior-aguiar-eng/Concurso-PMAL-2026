@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import sqlite3
 import uuid
@@ -21,6 +22,20 @@ from pmal_study.models import (
     GenerationBrief,
     PublicQuestion,
 )
+
+
+DEFAULT_BATCH_SIZE = 5
+MAX_BATCH_SIZE = 10
+
+
+def configured_batch_size() -> int:
+    """Quantas questões inéditas um único turno do modelo prepara (PMAL_GENERATION_BATCH_SIZE, 1-10)."""
+
+    try:
+        value = int(os.environ.get("PMAL_GENERATION_BATCH_SIZE", DEFAULT_BATCH_SIZE))
+    except ValueError:
+        return DEFAULT_BATCH_SIZE
+    return max(1, min(value, MAX_BATCH_SIZE))
 
 
 class GenerationError(ValueError):
@@ -172,11 +187,17 @@ class GenerationService:
             exemplars=exemplars, update_policy=row[6],
         )
 
-    def prepare(self, session_id: str) -> GenerationBrief:
+    def prepare(self, session_id: str, batch_size: int = 1) -> GenerationBrief:
+        """Prepara `batch_size` trabalhos sobre alvos distintos e devolve o primeiro brief.
+
+        Os demais ficam preparados na sessão e são servidos em ordem; o modelo os
+        produz no mesmo turno em que atende o primeiro (ver SessionService.claim_host_job).
+        """
+
         mode, disciplines = self._open_session(session_id)
         pending = self.connection.execute(
             "SELECT id FROM generation_jobs WHERE session_id = ? AND status = 'prepared' "
-            "ORDER BY prepared_at DESC LIMIT 1",
+            "ORDER BY prepared_at, rowid LIMIT 1",
             (session_id,),
         ).fetchone()
         if pending:
@@ -205,42 +226,54 @@ class GenerationService:
             """,
             target_parameters,
         ).fetchall()
+        selected: list[tuple[Any, tuple[EvidenceRef, ...]]] = []
+        seen_concepts: set[str] = set()
         for target in targets:
+            if target[3] in seen_concepts:
+                continue
             evidence = search_evidence(
                 self.connection, discipline=target[1], topic_id=target[2],
                 query=target[4], limit=8,
             )
-            if evidence:
+            if not evidence:
+                continue
+            seen_concepts.add(target[3])
+            selected.append((target, evidence))
+            if len(selected) >= max(1, batch_size):
                 break
-        else:
+        if not selected:
             raise GenerationError("no_evidence", "Não há evidência suficiente no escopo da sessão.")
-        difficulty = 4 if target[6] is None else max(2, min(5, round(3 + float(target[6]) * 2)))
-        reason = "conceito ainda não avaliado" if target[6] is None else "reforço orientado pelo domínio conceitual"
-        # Conteúdo histórico-geográfico de Alagoas não sofre alteração normativa;
-        # a confirmação ao vivo existe para capturar atualização legislativa.
-        update_policy = (
-            "local_sufficient"
-            if target[1] == Discipline.CONHECIMENTOS_ALAGOAS.value
-            or any(item.authority in {"official_legislation", "local_official_copy", "official_court"} for item in evidence)
-            else "selective_live_confirmation"
-        )
-        job_id = str(uuid.uuid4())
-        now = self._now().isoformat()
+        job_ids: list[str] = []
         with transaction(self.connection):
-            self.connection.execute(
-                """
-                INSERT INTO generation_jobs(
-                    id, session_id, discipline, topic_id, concept_key, difficulty,
-                    pedagogical_reason, update_policy, status, prepared_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'prepared', ?)
-                """,
-                (job_id, session_id, target[1], target[2], target[3], difficulty, reason, update_policy, now),
-            )
-            self.connection.executemany(
-                "INSERT INTO generation_evidence(job_id, evidence_kind, source_chunk_id, rank) "
-                "VALUES (?, 'local', ?, ?)",
-                ((job_id, item.id, rank) for rank, item in enumerate(evidence, start=1)),
-            )
+            for target, evidence in selected:
+                difficulty = 4 if target[6] is None else max(2, min(5, round(3 + float(target[6]) * 2)))
+                reason = "conceito ainda não avaliado" if target[6] is None else "reforço orientado pelo domínio conceitual"
+                # Conteúdo histórico-geográfico de Alagoas não sofre alteração normativa;
+                # a confirmação ao vivo existe para capturar atualização legislativa.
+                update_policy = (
+                    "local_sufficient"
+                    if target[1] == Discipline.CONHECIMENTOS_ALAGOAS.value
+                    or any(item.authority in {"official_legislation", "local_official_copy", "official_court"} for item in evidence)
+                    else "selective_live_confirmation"
+                )
+                job_id = str(uuid.uuid4())
+                job_ids.append(job_id)
+                self.connection.execute(
+                    """
+                    INSERT INTO generation_jobs(
+                        id, session_id, discipline, topic_id, concept_key, difficulty,
+                        pedagogical_reason, update_policy, status, prepared_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'prepared', ?)
+                    """,
+                    (job_id, session_id, target[1], target[2], target[3], difficulty, reason, update_policy,
+                     self._now().isoformat()),
+                )
+                self.connection.executemany(
+                    "INSERT INTO generation_evidence(job_id, evidence_kind, source_chunk_id, rank) "
+                    "VALUES (?, 'local', ?, ?)",
+                    ((job_id, item.id, rank) for rank, item in enumerate(evidence, start=1)),
+                )
+        job_id = job_ids[0]
         return self._brief(job_id)
 
     def search(self, job_id: str, query: str) -> tuple[EvidenceRef, ...]:

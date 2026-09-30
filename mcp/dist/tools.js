@@ -123,11 +123,13 @@ export function createToolCatalog(core, options = {}) {
         }, "end-session", EndSessionSchema, (data) => `Sessão encerrada: ${data.attempts} respostas e ${data.correct} acertos.`),
         tool("pmal_claim_host_job", {
             title: "Obter contexto privado de trabalho PMAL",
-            description: "Use ao receber um identificador de trabalho interno do painel. Obtém o contexto privado e marca o trabalho em processamento.",
+            description: "Use ao receber um identificador de trabalho interno do painel. Obtém o contexto privado e marca o trabalho em processamento. Em geração, pode devolver additional_jobs: outros trabalhos do lote, a concluir no mesmo turno.",
             inputSchema: { request_id: schema.string().min(1) },
             annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false, idempotentHint: true },
             _meta: { ui: { visibility: ["model"] } },
-        }, "claim-host-job", HostJobContextSchema, (data) => `Contexto privado do trabalho ${data.request_id} carregado.`),
+        }, "claim-host-job", HostJobContextSchema, (data) => data.additional_jobs?.length
+            ? `Contexto privado do trabalho ${data.request_id} carregado, com mais ${data.additional_jobs.length} para o mesmo turno.`
+            : `Contexto privado do trabalho ${data.request_id} carregado.`),
         tool("pmal_complete_generation_job", {
             title: "Concluir geração interna PMAL",
             description: "Valida e persiste a questão produzida para um trabalho interno de geração.",

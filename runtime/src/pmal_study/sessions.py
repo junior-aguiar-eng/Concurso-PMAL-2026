@@ -12,7 +12,7 @@ from enum import Enum
 from typing import Callable
 
 from pmal_study.db import transaction
-from pmal_study.generation import GenerationService
+from pmal_study.generation import GenerationService, configured_batch_size
 from pmal_study.models import (
     Discipline,
     EvidenceRef,
@@ -28,6 +28,9 @@ from pmal_study.scheduler import (
     rank_questions,
 )
 
+
+# Após este tempo sem progresso, um trabalho em processamento volta à fila (turno do modelo interrompido).
+HOST_JOB_STALE_SECONDS = 600
 
 _MODES = {"diagnostic", "timed", "discipline", "review", "mixed_mock"}
 _ORIGIN_LABELS = {
@@ -224,7 +227,7 @@ class StudyService:
             statement=row[3], origin_label=_ORIGIN_LABELS[row[4]],
         )
 
-    def prepare_next_item(self, session_id: str) -> PreparedItem:
+    def prepare_next_item(self, session_id: str, batch_size: int = 1) -> PreparedItem:
         mode, _, disciplines, _ = self._require_open_session(session_id)
         pending_question = self.connection.execute(
             """
@@ -264,7 +267,7 @@ class StudyService:
             )
             return PreparedItem("question", question, None)
         try:
-            return PreparedItem("generation", None, generator.prepare(session_id))
+            return PreparedItem("generation", None, generator.prepare(session_id, batch_size))
         except Exception as error:
             from pmal_study.generation import GenerationError
 
@@ -282,6 +285,15 @@ class StudyService:
 
     def commit_generated_question(self, job_id: str, draft: dict[str, object]) -> PublicQuestion:
         return GenerationService(self.connection, clock=self._clock).commit(job_id, draft)
+
+    def _is_stale(self, updated_at: str) -> bool:
+        try:
+            moment = datetime.fromisoformat(updated_at)
+        except ValueError:
+            return False
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=UTC)
+        return (self._now() - moment).total_seconds() > HOST_JOB_STALE_SECONDS
 
     @staticmethod
     def _host_job_public(row: sqlite3.Row | tuple) -> dict[str, object]:
@@ -303,12 +315,19 @@ class StudyService:
         ).fetchone():
             raise DomainError("generation_job_not_prepared", "Trabalho de geração indisponível.")
         existing = self.connection.execute(
-            "SELECT id, kind, status, result_json, error_code, error_message "
+            "SELECT id, kind, status, result_json, error_code, error_message, updated_at "
             "FROM host_jobs WHERE generation_job_id = ?",
             (generation_job_id,),
         ).fetchone()
         if existing:
-            return self._host_job_public(existing)
+            if existing[2] == "processing" and self._is_stale(existing[6]):
+                # O turno do modelo foi interrompido: devolve o trabalho à fila para o painel reenviá-lo.
+                self.connection.execute(
+                    "UPDATE host_jobs SET status = 'pending', updated_at = ? WHERE id = ?",
+                    (self._now().isoformat(), existing[0]),
+                )
+                return {"request_id": existing[0], "kind": existing[1], "status": "pending"}
+            return self._host_job_public(existing[:6])
         request_id = str(uuid.uuid4())
         now = self._now().isoformat()
         payload_hash = hashlib.sha256(generation_job_id.encode("utf-8")).hexdigest()
@@ -377,12 +396,16 @@ class StudyService:
             (self._now().isoformat(), request_id),
         )
         if row[0] == "question_generation":
-            brief = GenerationService(self.connection, clock=self._clock)._brief(row[1])
-            return {
+            generator = GenerationService(self.connection, clock=self._clock)
+            claimed = {
                 "request_id": request_id,
                 "kind": row[0],
-                "generation_brief": self._json_value(brief),
+                "generation_brief": self._json_value(generator._brief(row[1])),
             }
+            additional = self._claim_batch_siblings(row[1], generator)
+            if additional:
+                claimed["additional_jobs"] = additional
+            return claimed
         attempt = self.connection.execute(
             "SELECT question_id, expected_answer, correct, error_pattern FROM attempt_events WHERE id = ?",
             (row[2],),
@@ -399,6 +422,35 @@ class StudyService:
             "user_message": row[3],
             "conversation": self.get_dissection_exchanges(row[2]),
         }
+
+    def _claim_batch_siblings(
+        self, generation_job_id: str, generator: GenerationService,
+    ) -> list[dict[str, object]]:
+        """Reivindica, no mesmo turno, os demais trabalhos preparados da sessão (lote)."""
+
+        siblings = self.connection.execute(
+            """
+            SELECT sibling.id FROM generation_jobs AS sibling
+            WHERE sibling.status = 'prepared' AND sibling.id <> ?
+              AND sibling.session_id = (SELECT session_id FROM generation_jobs WHERE id = ?)
+            ORDER BY sibling.prepared_at, sibling.rowid
+            """,
+            (generation_job_id, generation_job_id),
+        ).fetchall()
+        claimed: list[dict[str, object]] = []
+        for (sibling_id,) in siblings:
+            job = self.request_generation_job(sibling_id)
+            if job["status"] not in {"pending", "processing"}:
+                continue
+            self.connection.execute(
+                "UPDATE host_jobs SET status = 'processing', updated_at = ? WHERE id = ? AND status = 'pending'",
+                (self._now().isoformat(), job["request_id"]),
+            )
+            claimed.append({
+                "request_id": job["request_id"],
+                "generation_brief": self._json_value(generator._brief(sibling_id)),
+            })
+        return claimed
 
     def complete_generation_job(
         self, request_id: str, draft: dict[str, object], model: str,
@@ -438,15 +490,22 @@ class StudyService:
         return self.get_host_job_status(request_id)
 
     def fail_host_job(self, request_id: str, code: str, message: str) -> dict[str, object]:
-        if not self.connection.execute(
-            "SELECT 1 FROM host_jobs WHERE id = ?", (request_id,)
-        ).fetchone():
+        row = self.connection.execute(
+            "SELECT generation_job_id FROM host_jobs WHERE id = ?", (request_id,)
+        ).fetchone()
+        if row is None:
             raise DomainError("host_job_not_found", "Trabalho interno não localizado.")
         self.connection.execute(
             "UPDATE host_jobs SET status = 'failed', error_code = ?, error_message = ?, updated_at = ? "
             "WHERE id = ?",
             (code, message, self._now().isoformat(), request_id),
         )
+        if row[0]:
+            # Sem isto o item falho seria reapresentado indefinidamente; cancelado, o próximo lote é preparado do zero.
+            self.connection.execute(
+                "UPDATE generation_jobs SET status = 'cancelled' WHERE id = ? AND status = 'prepared'",
+                (row[0],),
+            )
         return self.get_host_job_status(request_id)
 
     def _session_payload(self, session_id: str) -> dict[str, object]:
@@ -532,7 +591,7 @@ class StudyService:
                     "next_item": next_item, "conversation": conversation,
                     "dashboard": self.get_dashboard(),
                 }
-            prepared = self.prepare_next_item(session_id)
+            prepared = self.prepare_next_item(session_id, configured_batch_size())
             question = self._json_value(prepared.question) if prepared.question else None
             return {
                 "phase": "question" if question else "generation",
@@ -564,7 +623,7 @@ class StudyService:
         if buffered:
             return PreparedItem("question", self._public_question(buffered[0]), None)
         pending_job = self.connection.execute(
-            "SELECT id FROM generation_jobs WHERE session_id = ? AND status = 'prepared' ORDER BY prepared_at LIMIT 1",
+            "SELECT id FROM generation_jobs WHERE session_id = ? AND status = 'prepared' ORDER BY prepared_at, rowid LIMIT 1",
             (session_id,),
         ).fetchone()
         if pending_job:
@@ -582,7 +641,9 @@ class StudyService:
             )
             return PreparedItem("question", question, None)
         try:
-            return PreparedItem("generation", None, GenerationService(self.connection, clock=self._clock).prepare(session_id))
+            return PreparedItem("generation", None, GenerationService(self.connection, clock=self._clock).prepare(
+                session_id, configured_batch_size(),
+            ))
         except Exception as error:
             from pmal_study.generation import GenerationError
             if isinstance(error, GenerationError):

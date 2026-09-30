@@ -98,6 +98,10 @@ export const HostJobContextSchema = z.strictObject({
     request_id: z.string().min(1),
     kind: z.enum(["question_generation", "dissection"]),
     generation_brief: GenerationBriefSchema.optional(),
+    additional_jobs: z.array(z.strictObject({
+        request_id: z.string().min(1),
+        generation_brief: GenerationBriefSchema,
+    })).optional(),
     attempt_id: z.string().min(1).optional(),
     question: PublicQuestionSchema.optional(),
     grading: z.lazy(() => GradingResultSchema).optional(),
