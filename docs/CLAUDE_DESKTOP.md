@@ -21,7 +21,7 @@
 ## Uso
 
 - Menu **+ → Treinador PMAL Oficial**: *Estudar por tempo*, *Revisar pendências*, *Diagnóstico*, *Simulado misto*, *Estudar no chat (sem painel)* e *Painel de desempenho*.
-- O padrão é o **ambiente de estudo interativo** (`pmal_open_study_panel`): o ciclo questão → C/E + confiança → correção acontece no painel. Pedidos do painel (gerar questão inédita, dissecar dúvida) chegam ao Claude como identificadores de trabalho, processados por `pmal_claim_host_job`.
+- O padrão é o **ambiente de estudo interativo** (`pmal_open_study_panel`): o ciclo questão → C/E + confiança → correção acontece no painel. Pedidos do painel (gerar questão inédita, dissecar dúvida) chegam ao Claude como identificadores de trabalho, processados por `pmal_claim_host_job`. Cada pedido de geração prepara um **lote** (padrão: 5 questões, ajustável por `PMAL_GENERATION_BATCH_SIZE`, de 1 a 10): o Claude produz todas no mesmo turno e o painel serve as demais sem nova mensagem.
 - Se o painel não aparecer, use *Estudar no chat*: o Claude conduz pelo fluxo textual, gerando questões inéditas a partir das evidências do acervo e congelando-as antes de apresentar.
 - As regras de condução vão nas instruções do servidor; o Desktop não depende da pasta `skills/`.
 
