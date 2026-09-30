@@ -293,3 +293,47 @@ def test_trabalho_em_processamento_parado_volta_para_a_fila(db_connection, froze
     assert service.request_generation_job(first.job_id)["status"] == "processing"
     clock["now"] = frozen_now + timedelta(minutes=11)
     assert service.request_generation_job(first.job_id)["status"] == "pending"
+
+def test_evidencia_estranha_informa_ids_aceitos(db_connection, frozen_now):
+    """O erro nomeia a evidência recusada e os identificadores válidos do trabalho."""
+
+    from pmal_study.generation import GenerationError, GenerationService
+
+    with db_connection:
+        db_connection.execute(
+            "INSERT INTO source_documents(id, relative_path, document_type, sha256, page_count, status) "
+            "VALUES ('doc-y', 'Legislacao Oficial/L9099.pdf', 'pdf', ?, 1, 'usable')", ("e" * 64,),
+        )
+        db_connection.execute(
+            "INSERT INTO source_document_versions(id, document_id, sha256, page_count, status, processed_at, is_current) "
+            "VALUES ('ver-y', 'doc-y', ?, 1, 'usable', ?, 1)", ("e" * 64, frozen_now.isoformat()),
+        )
+        db_connection.execute(
+            "INSERT INTO source_chunks(id, version_id, document_id, page_start, page_end, locator, text, sha256, "
+            "discipline, topic_id, authority, status) VALUES ('chunk-y', 'ver-y', 'doc-y', 1, 1, 'Art. 61', "
+            "'Art. 61. Consideram-se infrações de menor potencial ofensivo.', ?, 'legislacao_pmal', 'leg.15', "
+            "'local_official_copy', 'usable')", ("f" * 64,),
+        )
+        session = StudyService(db_connection, clock=lambda: frozen_now).start_session(
+            mode="discipline", duration_minutes=30, disciplines=["legislacao_pmal"],
+        )
+        db_connection.execute(
+            "INSERT INTO generation_jobs(id, session_id, discipline, topic_id, concept_key, difficulty, "
+            "pedagogical_reason, update_policy, status, prepared_at) VALUES ('job-y', ?, 'legislacao_pmal', "
+            "'leg.15', 'legacy:leg.15', 3, 'teste', 'local_sufficient', 'prepared', ?)",
+            (session.id, frozen_now.isoformat()),
+        )
+        db_connection.execute(
+            "INSERT INTO generation_evidence(job_id, evidence_kind, source_chunk_id, rank) VALUES ('job-y', 'local', 'chunk-y', 1)"
+        )
+    draft = {
+        "statement": "Nos juizados especiais criminais, a contravenção penal não é infração de menor potencial ofensivo.",
+        "answer": "E", "rationale": "O art. 61 inclui as contravenções penais entre as infrações de menor potencial.",
+        "construction_pattern": "negação", "difficulty": 3, "concept": "menor potencial",
+        "decisive_expression": "não é", "trap": "negação", "distinction": "contravenção x crime",
+        "evidence_links": [{"evidence_id": "id-inventado", "claim_key": "art61"}],
+    }
+    with pytest.raises(GenerationError) as error:
+        GenerationService(db_connection, clock=lambda: frozen_now).commit("job-y", draft)
+    assert error.value.code == "foreign_evidence"
+    assert "id-inventado" in str(error.value) and "chunk-y" in str(error.value)

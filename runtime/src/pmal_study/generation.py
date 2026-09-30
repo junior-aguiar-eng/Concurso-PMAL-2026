@@ -401,8 +401,15 @@ class GenerationService:
                 (job_id,),
             )
         }
-        if any(link["evidence_id"] not in prepared_ids for link in draft.evidence_links):
-            raise GenerationError("foreign_evidence", "A questão cita evidência não preparada para este trabalho.")
+        foreign = [link["evidence_id"] for link in draft.evidence_links if link["evidence_id"] not in prepared_ids]
+        if foreign:
+            # Lista os identificadores aceitos para o host corrigir o vínculo sem tentativa às cegas.
+            raise GenerationError(
+                "foreign_evidence",
+                "A questão cita evidência não preparada para este trabalho: "
+                f"{', '.join(foreign)}. Use em evidence_id exatamente o campo \"id\" de um item de "
+                f"generation_brief.evidence ou de pmal_search_evidence deste trabalho: {', '.join(sorted(prepared_ids))}.",
+            )
         evidence_by_id = {item.id: item for item in self._evidence_for_job(job_id)}
         if any(link["evidence_id"] not in evidence_by_id for link in draft.evidence_links):
             raise GenerationError("invalid_evidence", "A evidência foi invalidada ou não está mais disponível.")
