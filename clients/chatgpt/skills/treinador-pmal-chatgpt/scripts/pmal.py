@@ -14,6 +14,7 @@ Uso:
 from __future__ import annotations
 
 import argparse
+import gzip
 import io
 import json
 import os
@@ -114,7 +115,11 @@ def cmd_init(progress: str | None) -> None:
         origin = "progresso enviado"
     elif not target.exists():
         seed = BUNDLED_RUNTIME / "corpus" / SEED_NAME
-        if seed.is_file():
+        parts = sorted((BUNDLED_RUNTIME / "corpus" / "acervo").glob("acervo-*.db"))
+        if parts:
+            target.write_bytes(gzip.decompress(b"".join(part.read_bytes() for part in parts)))
+            origin = "acervo do pacote"
+        elif seed.is_file():
             shutil.copyfile(seed, target)
             origin = "acervo do pacote"
         else:
