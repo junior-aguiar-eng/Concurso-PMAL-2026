@@ -44,7 +44,31 @@ def _public_seed(source: Path, target: Path) -> dict[str, int]:
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
-    return module.build(source, target)
+    # Banco de uso (com histórico) referencia trechos didáticos em evidências de questões e
+    # gerações; build_public_seed apaga esses trechos com chaves estrangeiras ativas.
+    # Remove antes, numa cópia, as referências aos trechos que serão apagados.
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+        working = Path(temporary) / "seed.db"
+        shutil.copyfile(source, working)
+        with closing(sqlite3.connect(working)) as connection:
+            documents = connection.execute("SELECT id, relative_path FROM source_documents").fetchall()
+            private = [
+                document_id for document_id, relative_path in documents
+                if not module.is_public(relative_path, {
+                    row[0] for row in connection.execute(
+                        "SELECT DISTINCT authority FROM source_chunks WHERE document_id = ?", (document_id,)
+                    )
+                })
+            ]
+            with connection:
+                for document_id in private:
+                    for table in ("generation_evidence", "question_evidence", "exam_item_sources"):
+                        connection.execute(
+                            f"DELETE FROM {table} WHERE source_chunk_id IN "
+                            "(SELECT id FROM source_chunks WHERE document_id = ?)",
+                            (document_id,),
+                        )
+        return module.build(working, target)
 
 
 # Nomes sem número de lei que o mapeamento de tópicos não reconhece.
