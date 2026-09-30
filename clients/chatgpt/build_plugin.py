@@ -24,6 +24,7 @@ import json
 import os
 import shutil
 import sqlite3
+from contextlib import closing
 import subprocess
 import sys
 import tempfile
@@ -108,7 +109,7 @@ def _index_laws(folder: Path, database: Path) -> dict[str, object]:
     if not pdfs:
         raise SystemExit(f"Nenhum PDF encontrado em {folder}")
     unmapped = []
-    with tempfile.TemporaryDirectory() as temporary:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
         root = Path(temporary)
         official = root / "Legislacao Oficial"
         official.mkdir()
@@ -130,7 +131,7 @@ def _index_laws(folder: Path, database: Path) -> dict[str, object]:
 
 
 def _seed_report(path: Path) -> dict[str, object]:
-    with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as connection:
+    with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as connection:
         marks = ",".join("?" for _ in OFFICIAL)
         official = connection.execute(
             f"SELECT count(*) FROM source_chunks WHERE authority IN ({marks})", OFFICIAL
@@ -162,7 +163,7 @@ def _files(root: Path):
 def build(seed: Path | None, laws: Path | None, keep_didactic: bool, output: Path) -> Path:
     manifest = json.loads((HERE / "plugin.json").read_text(encoding="utf-8"))
     version = manifest["version"]
-    with tempfile.TemporaryDirectory() as temporary:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
         stage = Path(temporary) / "stage"
         skill = stage / "skills" / SKILL
         shutil.copytree(HERE / "skills" / SKILL, skill)

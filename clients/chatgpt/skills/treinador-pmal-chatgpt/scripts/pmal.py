@@ -20,7 +20,7 @@ import os
 import shutil
 import sqlite3
 import sys
-from contextlib import redirect_stdout
+from contextlib import closing, redirect_stdout
 from datetime import datetime
 from pathlib import Path
 
@@ -76,7 +76,7 @@ def _copy_runtime() -> None:
 
 def _valid_database(path: Path) -> bool:
     try:
-        with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as connection:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as connection:
             connection.execute("SELECT count(*) FROM questions").fetchone()
         return True
     except sqlite3.Error:
@@ -86,7 +86,7 @@ def _valid_database(path: Path) -> bool:
 def _counts(path: Path) -> dict[str, int]:
     if not path.exists():
         return {}
-    with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as connection:
+    with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as connection:
         def one(sql: str, *args: object) -> int:
             try:
                 return int(connection.execute(sql, args).fetchone()[0])
@@ -164,7 +164,7 @@ def cmd_lei(terms: str, discipline: str | None, limit: int) -> None:
         params.append(discipline)
     sql += " ORDER BY bm25(source_chunks_fts) LIMIT ?"
     params.append(limit)
-    with sqlite3.connect(database()) as connection:
+    with closing(sqlite3.connect(database())) as connection:
         rows = connection.execute(sql, params).fetchall()
     emit({
         "ok": True,
@@ -179,7 +179,7 @@ def cmd_lei(terms: str, discipline: str | None, limit: int) -> None:
 
 def cmd_cobertura() -> None:
     marks = ",".join("?" for _ in OFFICIAL)
-    with sqlite3.connect(database()) as connection:
+    with closing(sqlite3.connect(database())) as connection:
         rows = connection.execute(
             f"""
             SELECT topic.id, topic.discipline, topic.title,
@@ -201,7 +201,7 @@ def cmd_cobertura() -> None:
 def cmd_salvar() -> None:
     stamp = datetime.now().strftime("%Y%m%d-%H%M")
     target = work_dir().parent / f"pmal-progresso-{stamp}.db"
-    with sqlite3.connect(database()) as connection:
+    with closing(sqlite3.connect(database())) as connection:
         connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         if target.exists():
             target.unlink()
